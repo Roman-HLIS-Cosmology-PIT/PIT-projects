@@ -126,7 +126,7 @@ def form(ctx):
         "Keep the field headings. No email address is requested."),
         field("kind", "dropdown", True, options=kinds, default=kinds.index("EP") if "EP" in kinds else 0),
         field("lead", description="Required for EP."),
-        field("lead_github_username", description="One GitHub username without @. Ordinary members must enter their own username."),
+        field("lead_github_username", description="One GitHub username without @."),
         field("working_group", "dropdown", True, options=list(group_options(ctx))),
         field("deliverable_ids", "dropdown", True, options=deliverable_options(ctx), multiple=True,
               description="Select deliverables from your chosen working group."),
