@@ -24,6 +24,9 @@ lead_editable_fields:
   - deliverable_ids
   - github_url
   - contributors
+  - phd_thesis
+  - slack_channel
+  - related_links
 
 # Contributors may edit content, but cannot change project membership.
 contributor_editable_fields:
@@ -31,3 +34,5 @@ contributor_editable_fields:
   - status
   - deliverable_ids
   - github_url
+  - slack_channel
+  - related_links

@@ -23,6 +23,10 @@ Add a group by adding another correctly named YAML file. Add a deliverable by
 adding an `id`/`title` entry in its group's file. Neither operation requires
 updating the project schema, Python scripts, or an index of allowed groups.
 SC approval is required as for other administrative configuration changes.
+After changing groups or deliverables, run `python -m scripts.issue_form` and
+include the regenerated form in the same PR. The registry catalogue remains the
+source of truth. Issue-form deliverable IDs use letters, digits, dots, underscores
+and hyphens to keep multi-selection values unambiguous.
 
 Projects continue to use `working_group: SCM` and a `deliverable_ids` list.
 The validator checks both values against the directory at the proposed commit.
@@ -99,4 +103,4 @@ appropriate lead/contributor identities, and set `working_group: TEST` and
 `deliverable_ids: [TEST-1]`. The Project policy check should pass without schema
 changes. Change the group to `MISSING`, or use a nonexistent deliverable: fail.
 Restore the valid values and then remove the TEST group file while leaving the
-project: fail. Close this disposable PR without merging when testing is complete.
+project: fail. Regenerate the Issue Form with each catalogue change. Close this disposable PR without merging when testing is complete.

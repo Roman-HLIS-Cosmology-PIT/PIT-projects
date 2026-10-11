@@ -59,7 +59,7 @@ def parse_yaml(text: str):
 USERNAME = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\Z")
 PROJECT_PATH = re.compile(r"projects/(P[0-9]{3,})\.yaml\Z")
 GROUP_PATH = re.compile(r"working_groups/([A-Z][A-Z0-9_-]*)\.yaml\Z")
-PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username"}
+PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username", "submission"}
 
 
 def usernames(values, label):
@@ -221,6 +221,11 @@ def validate_record(record: dict, path: str, ctx: Context):
     unknown = set(record["deliverable_ids"]) - ctx.deliverables[record["working_group"]]
     if unknown:
         raise Invalid("Deliverable IDs must exist in the selected working group's catalogue")
+    from scripts.submission import https_url
+    for link in record.get("related_links", []):
+        https_url(link)
+    if isinstance(record.get("slack_channel"), str) and not record["slack_channel"].strip():
+        raise Invalid("Slack channel cannot be whitespace")
     url = record.get("github_url")
     if url is not None and url.rstrip("/").rsplit("/", 1)[-1] in {".", ".."}:
         raise Invalid("GitHub URL must refer to a repository")
@@ -231,7 +236,8 @@ def authorize_change(old, new, actor: str, ctx: Context, *, organization_member:
 
     is_sc must come from a trusted live GitHub team lookup, not record content.
     The CLI only simulates these values. This stage's GitHub adapter accepts
-    direct SC-authored PRs only; the later intake adapter must verify members.
+    direct SC-authored PRs and verified Issue submissions. The adapter must
+    authenticate the original requester before calling this function.
     """
     actor = actor.lower()
     if new is None:
@@ -362,4 +368,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -18,4 +18,7 @@ status: active
 working_group: SCM
 deliverable_ids: []
 github_url: null
-
+# Additional optional fields (Issue submissions collect these automatically).
+phd_thesis: false
+slack_channel: null
+related_links: []

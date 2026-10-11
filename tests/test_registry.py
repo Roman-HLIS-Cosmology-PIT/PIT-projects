@@ -358,10 +358,10 @@ class RegistryTests(unittest.TestCase):
     def test_workflow_uses_trusted_base_and_readonly_token(self):
         workflow = yaml.load((ROOT / ".github/workflows/project-policy.yml").read_text(), Loader=yaml.BaseLoader)
         self.assertIn("pull_request_target", workflow["on"])
-        self.assertEqual(workflow["permissions"], {"contents": "read", "pull-requests": "read"})
+        self.assertEqual(workflow["permissions"], {"contents": "read", "pull-requests": "read", "issues": "read", "statuses": "write"})
         steps = workflow["jobs"]["project-policy"]["steps"]
         checkout = steps[0]
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
+        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
         self.assertEqual(checkout["with"]["persist-credentials"], "false")
         for step in steps:
             if "uses" in step:
@@ -371,4 +371,3 @@ class RegistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

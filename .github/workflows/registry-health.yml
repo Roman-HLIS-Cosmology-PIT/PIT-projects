@@ -22,6 +22,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - run: python -m scripts.project_registry validate
+      - name: Check submission form matches working-group catalogue
+        run: python -m scripts.issue_form --check
       - name: Check configured SC team access
         run: python -m scripts.validate_pr --check-team
         env:
@@ -31,4 +33,3 @@ jobs:
         run: python -m scripts.project_registry catalog --output build/projects.json
       - name: Verify the combined working-group YAML can be built
         run: python -m scripts.project_registry working-groups --output build/working_groups.yaml
-

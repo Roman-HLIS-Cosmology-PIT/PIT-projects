@@ -1,3 +1,5 @@
+> New Project Issue submissions are now implemented. Follow [the submission guide](project-submissions.md) for the additional label, Actions PR-creation setting, required head status and end-to-end tests.
+
 # Setup and test the single repository
 
 Run local commands from your repository root. You handle GitHub commits and
@@ -119,8 +121,7 @@ needed. Production PR checks do live membership lookups.
 Commit/push the bootstrap to `main` yourself before enabling protection.
 In Settings → Actions → General, allow GitHub-owned `actions/checkout` and
 `actions/setup-python` and their dependencies if allowlisted. Keep permissions
-read-only and "Allow GitHub Actions to create and approve pull requests"
-disabled for this stage. Use the supplied hosted runners.
+read-only by default, and enable "Allow GitHub Actions to create and approve pull requests" for the submission workflow. The supplied workflow only creates PRs; it never approves or merges them. Use the supplied hosted runners.
 
 **Registry health** should pass, including its live check that the SC team is
 accessible. It can also run manually on `main`.
@@ -241,4 +242,3 @@ Run proposed code tests locally; the PR check executes trusted base code only.
 References: [team lookup](https://docs.github.com/en/rest/teams/members#get-team-membership-for-a-user),
 [tokens](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token),
 [Wiki access](https://docs.github.com/en/communities/documenting-your-project-with-wikis/changing-access-permissions-for-wikis).
-

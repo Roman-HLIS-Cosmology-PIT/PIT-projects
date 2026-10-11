@@ -1,102 +1,83 @@
-# Collaboration project registry — stage 1
+# Collaboration project registry
 
-This is the initial contents of one repository readable by the collaboration.
-It stores project records, validates PRs, and will host its own Wiki. It can
-remain private on GitHub with collaboration Read access; it is not an
-SC-confidential space. The repository starts with **no projects**.
-Examples in `templates/` are not registered projects.
+This repository stores searchable project YAML records and supports **New Project
+Issue submissions** from organization members with Read access. GitHub Actions
+validates proposals and opens PRs; Steering Committee members review and merge
+them. The same repository will host its Wiki in a later step.
 
-Start with [setup and testing](docs/setup-and-test.md). Point CODEOWNERS at your
-existing SC team and configure a read-only team lookup credential. Membership
-is maintained exclusively in GitHub; no duplicate SC roster is stored.
+[**Submit a project**](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-project.yml)
 
-This stage supports **SC-authored PRs from branches in this repository**.
-The separate workflow that authenticates ordinary members and creates PRs
-will be connected later. The same repository's Wiki is reserved for that later
-step; Wiki automation is not implemented yet.
+Start with [submission setup and testing](docs/project-submissions.md), alongside
+[repository permissions and branch protection](docs/setup-and-test.md). The SC
+roster is maintained only in GitHub through the team named in CODEOWNERS.
 
-Every proposal file, PR description, review comment, commit and Actions log is
-visible to repository readers. Include only collaboration-appropriate content.
-Handle confidential discussion outside this repository.
+All Issues, project records, reviews and logs are visible to repository readers.
+Include only collaboration-appropriate content. No email field is collected.
 
-## Current GitHub Actions workflows
+## Current workflows
 
-Two workflows are installed. They validate records and permissions; SC members
-review and merge PRs themselves. Neither workflow creates PRs, merges changes,
-publishes Wiki pages, or sends notifications.
+| Workflow | Trigger | Result |
+| --- | --- | --- |
+| **New project submission** (`new-project.yml`) | A labelled New Project Issue is created/edited/reopened/closed or labelled/unlabelled; manual retry on main | Verify the actual Issue author's membership and project policy; comment on errors; create/update one YAML proposal PR |
+| **Project review** (`project-policy.yml`) | PR events targeting main; explicit dispatch for automated PRs | Validate data using trusted-base code; publish required **Project policy** status on the actual PR head |
+| **Registry health** (`registry-health.yml`) | Push to main or manual run | Validate accepted records, catalogue/form consistency, live SC team access, regression tests and machine-readable exports |
 
-| Workflow | File | Runs when | Result |
-| --- | --- | --- | --- |
-| **Project review** | `.github/workflows/project-policy.yml` | A PR targeting `main` is opened, updated, reopened, edited, or marked ready for review | The **Project policy** check passes or fails |
-| **Registry health** | `.github/workflows/registry-health.yml` | A commit reaches `main`, or an administrator starts it manually (choose `main`) | The accepted registry, team access and regression tests pass or fail |
+### Submission and correction
 
-### Project review: validate a proposed change
+The form collects project title/kind, lead name/username, contributor pairs,
+working group and deliverables, PhD-thesis status, Slack channel, description,
+optional main repository and related links. Ordinary members create EP projects
+with themselves as lead. SC can declare CPP/KEY, including unassigned projects.
 
-The **Project policy** job:
+After submission, one automation comment gives corrections or links the PR.
+To correct an answer, select **⋯ → Edit** on the original Issue description,
+keep the field headings and save. Validation reruns and updates the same PR.
+Invalid edits block its policy status. SC approval remains required; merging
+closes the Issue. The workflow never approves or merges a PR.
 
-1. Checks out the PR's exact base commit and installs its dependencies.
-2. Fetches the PR's author and commit IDs from GitHub. Only direct SC-authored
-   PRs from a branch in this repository are accepted in this stage.
-3. Reads the SC team reference from the accepted CODEOWNERS file and verifies
-   that the original PR author is an active member of that team.
-4. Reads proposed project/configuration files through the GitHub API as data.
-   It checks required fields, names and usernames, category choices,
-   deliverables, project IDs, assignment rules and all proposed registry records.
-5. Checks that the PR commits and the author's SC membership remain valid at
-   the end of validation, then runs regression tests from the base commit.
+Working-group/dropdown choices are generated from `working_groups/`. After
+changing a catalogue, run `python -m scripts.issue_form` and include the updated
+form in the same SC PR. GitHub's native form does not provide cascading
+working-group/deliverable dropdowns; their pairing is checked after submission.
 
-Proposed scripts, tests, dependencies and workflows are not executed by this
-check. Review infrastructure changes carefully and test their proposed code
-locally before merging. A passing check means the proposal is valid; it is
-not acceptance of the project and does not verify the scientific content.
+### Review and trust
 
-To enforce the result, protect `main` with the required **Project policy**
-status check and required Code Owner approval, with bypass disabled. CODEOWNERS
-alone requests review; repository settings make that review mandatory.
-Follow [setup and testing](docs/setup-and-test.md) for the complete settings.
+Direct SC-authored PRs remain supported. Automated proposal PRs are accepted
+only from GitHub Actions on their reserved Issue branch, changing one new
+project file that exactly matches the current verified Issue. A bot is never
+considered an SC member. Submitted names, usernames, labels and PR descriptions
+do not authenticate a requester.
 
-### Registry health: validate the accepted state
+The policy workflow checks out trusted base code and reads proposed Git blobs
+as data. It never executes proposed scripts, tests, dependencies or workflows.
+For an automated proposal it rechecks the live Issue and original author;
+for a direct PR it rechecks the SC author. A passing check validates the data
+and permissions; SC reviewers assess scientific content and acceptance.
 
-This workflow validates every accepted project against the current schema and
-deliverable catalogues, checks that the configured SC team is accessible,
-runs regression tests, and builds `build/projects.json` and
-`build/working_groups.yaml` on the runner.
-These are temporary verification outputs: they are not committed, uploaded
-as an artifact, or published. Generate it locally using the commands below
-when you want to search or export the registry.
+Protect main with required **Project policy** status and Code Owner approval,
+dismissed stale reviews, up-to-date branches and no bypass. The workflow job
+`Validate project policy` is separate from the required head status.
 
-The health workflow runs accepted code after a merge. A failure reports a
-problem; it does not undo the merge. It is not a required PR check because
-it normally runs after changes reach `main`.
+### Credentials and later work
 
-### Credentials and visibility
+The existing **SC_TEAM_READ_TOKEN** supplies organization Members Read access
+for membership lookups. It is used only with organization API endpoints.
+The submission workflow's built-in token writes its branch/PR/feedback/status
+and dispatches independent validation. The policy token reads repository data
+and writes only commit statuses. Registry health has repository read access.
+No external backend, email verification, fork or additional sign-in is used.
 
-The built-in `GITHUB_TOKEN` has repository read permissions. Both workflows
-also use the repository Actions secret **`SC_TEAM_READ_TOKEN`**, configured
-with organization **Members: Read-only**. The secret is needed for team
-lookups, not for granting SC people repository access. SC authority is checked
-using the existing GitHub team; there is no separate membership list here.
-Missing credentials, failed lookups and expired tokens fail the checks.
-
-Keep ordinary members at Read access and trust anyone with Write/Admin access
-to manage workflows and secrets. The token's organization membership access
-is broader than the single SC check, so grant no unnecessary permissions.
-Records and logs must contain only collaboration-appropriate information.
-
-### Planned workflows
-
-Ordinary-member submission, authenticated claims and updates, PR creation,
-Wiki publication, and notifications are later steps. The policy engine already
-supports local simulations of member rules, but this starter does not expose
-a member submission form or authenticate bot-created PRs. See
-[the future intake contract](docs/future-intake.md).
+Member claims/updates for already accepted projects, Wiki publication and
+notifications remain later steps. The policy engine can simulate claim/update
+rules locally. See [the submission guide](docs/project-submissions.md) for
+installation, security boundaries, retries and GitHub tests.
 
 ## Project records
 
 One file per project: `projects/P001.yaml`. YAML is convenient for a long
 summary and easily loaded by a computer. A stable ID separates identity from
 the name, which may change. IDs are reserved when the PR is opened; use the
-next unused `P001`, `P002`, etc. Do not reuse an accepted project's ID.
+next unused short manual ID (`P001`, `P002`, etc.). Issue submissions reserve zero-padded IDs such as `P000012` for Issue #12. Do not reuse accepted IDs.
 
 | Field | Representation | Rules |
 | --- | --- | --- |
@@ -112,6 +93,10 @@ next unused `P001`, `P002`, etc. Do not reuse an accepted project's ID.
 | `working_group` | A code from `working_groups/<CODE>.yaml` | One working group per project; allowed codes come from directory contents |
 | `deliverable_ids` | List of strings | May be empty; IDs must exist in that group's catalogue |
 | `github_url` | Repository HTTPS URL or `null` | Optional; can be omitted and added later |
+| `phd_thesis` | Boolean | Required for Issue submissions; optional in older records |
+| `slack_channel` | Channel name or `null` | Optional |
+| `related_links` | List of HTTPS URLs | Optional; no embedded credentials |
+| `submission` | Generated Issue number, submitting login and body digest | Administrative provenance; verified against the live Issue during proposal review |
 
 Names are human-readable labels and may contain spaces and accented characters.
 GitHub usernames are separate, **without `@`**, and are used for authorization
@@ -222,11 +207,10 @@ list because the lead is implicit. A claim does not rewrite the proposal or
 add other people. Other updates happen separately. Claimed CPPs cannot be
 claimed again. KEY projects require SC lead assignment.
 
-The engine implements these rules now, but ordinary-member actions are only
-**local policy simulations** until the authenticated submission bridge exists.
-In the current GitHub workflow, SC-authored PRs are SC decisions, including
-when SC enters a proposal on behalf of someone else. A name or username in YAML
-does not establish who submitted a request.
+New EP submission now uses the authenticated Issue author. Claims and updates
+to accepted records remain local simulations or direct SC decisions until their
+own intake flows are added. A name or username in YAML does not establish who
+submitted a request.
 
 ## Acceptance and rejection
 
@@ -240,9 +224,8 @@ does not establish who submitted a request.
 
 Proposal review is distinct from `status: IR`. Do not add `pending` or
 `rejected` to the project status to represent the PR decision. Git history and
-PRs retain previous records and review decisions. Acceptance dates/submission
-provenance are not fabricated in editable YAML; the future intake/acceptance
-workflow can store them as trusted administrative information.
+PRs retain previous records and review decisions. Issue submissions include generated provenance verified against the live
+Issue. Accepted history and review decisions remain in Git and the associated PR.
 
 ## Repository layout
 
@@ -250,8 +233,11 @@ workflow can store them as trusted administrative information.
 .github/
   CODEOWNERS
   pull_request_template.md
+  ISSUE_TEMPLATE/
+    new-project.yml            # Generated proposal form
   workflows/
-    project-policy.yml         # Trusted-base, read-only PR validation
+    new-project.yml            # Verified Issue-to-PR submission
+    project-policy.yml         # Trusted-base validation and head status
     registry-health.yml        # Validation/tests after merging into main
 config/
   policy.yaml                  # Creation/claim rules and editable fields
@@ -268,14 +254,19 @@ templates/
   unassigned-cpp.yaml
 scripts/
   project_registry.py          # Validation, policy, JSON catalogue, simulation
-  validate_pr.py               # GitHub read-only adapter
+  validate_pr.py               # GitHub PR validation and status
+  issue_form.py                # Generate form from catalogue
+  submission.py                # Parse/validate Issue answers
+  issue_intake.py              # Verify author and create/update proposal
 tests/
   test_registry.py
   test_github_adapter.py
   test_team_directory.py
   test_working_groups.py
+  test_issue_submission.py
 docs/
   setup-and-test.md
+  project-submissions.md
   future-intake.md
   working-groups.md
 requirements.txt
@@ -315,8 +306,8 @@ the same PR.
 
 - Add/change a status: edit `properties.status.enum` in the schema.
 - Add a working group: add `working_groups/<GROUP>.yaml` with its code,
-  description and deliverables. No schema or code change is needed.
-- Add/change a deliverable: edit its working-group catalogue. Removing a used
+  description and deliverables; regenerate the form with `python -m scripts.issue_form`. No schema or code change is needed.
+- Add/change a deliverable: edit its working-group catalogue and regenerate the form. Removing a used
   ID requires updating the affected project records in the same PR.
 - Add a kind: edit `properties.kind.enum` and define its three explicit rules
   under `kinds` in the policy. Unknown kinds have no implicit permission.
@@ -344,14 +335,15 @@ explicit policy/model change.
 The `Project policy` workflow executes only code and dependencies from the
 PR's exact base commit. Proposed YAML/JSON are obtained as Git blobs through
 the GitHub API and inspected as data. Proposed Python/workflows are never run
-by that check. The normal Actions token has only Contents Read and Pull Requests
-Read; it cannot merge, change files, or publish anything. A separate
+by that check. The policy token has Contents, Pull Requests and Issues Read,
+plus Commit Statuses Write to publish the required status on the actual PR head.
+It cannot change repository files or merge PRs. A separate
 `SC_TEAM_READ_TOKEN` secret supplies organization Members Read permission for
 team lookups; no repository write or membership write permission is needed.
 Never commit its value.
 
 SC authority comes from a **live lookup** of active GitHub team membership
-for the GitHub API's PR author. The identifier is read from the **base**
+for the GitHub API's PR author, or the original Issue author for bot proposals. The identifier is read from the **base**
 CODEOWNERS rule, not the proposed rule. Event senders, rerun actors, PR bodies
 and YAML fields cannot establish SC identity or self-authorize a PR.
 
@@ -375,4 +367,3 @@ Official GitHub references:
 - [Secure use of pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [Required status checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 - [Team lookup and Members Read permission](https://docs.github.com/en/rest/teams/members#get-team-membership-for-a-user)
-
