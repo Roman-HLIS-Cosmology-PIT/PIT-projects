@@ -1,4 +1,3 @@
-# The single SC team reference used by BOTH GitHub review and live authorization.
-# Change this to your existing team's actual org/slug. Do not list individual people.
-# Keep one wildcard rule; the team must be visible and have explicit Write access.
-* @Roman-HLIS-Cosmology-PIT/steering-committee
+# Test review routing: request only aguinot.
+# Restore the SC team here after testing. Authorization uses config/access.yaml.
+* @aguinot
