@@ -1,0 +1,14 @@
+working_group: CAS
+deliverables:
+  - id: CAS-1
+    title: Photometric redshift inference
+  - id: CAS-2
+    title: Galaxy sample preparation and calibration
+  - id: CAS-3
+    title: Galaxy cluster identification and cross-correlation
+  - id: CAS-4
+    title: Catalog simulations
+  - id: CAS-5
+    title: 2-point statistics measurement
+  - id: CAS-6
+    title: Observational systematics parametrizatin and priors

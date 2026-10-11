@@ -1,0 +1,12 @@
+working_group: SCM
+deliverables:
+  - id: SCM-1
+    title: Calibration
+  - id: SCM-2
+    title: Image pre-processing
+  - id: SCM-3
+    title: Galaxy identification and shape measurement
+  - id: SCM-4
+    title: Photometry and color measurement
+  - id: SCM-5
+    title: Image simulations

@@ -1,0 +1,13 @@
+schema_version: 1
+project_id: P002
+name: Example critical path project awaiting a lead
+lead: null
+lead_github_username: null
+contributors: []
+summary: |
+  Describe the work the collaboration needs and what taking the lead involves.
+kind: CPP
+status: active
+working_group: SCM
+deliverable_ids: []
+github_url: null

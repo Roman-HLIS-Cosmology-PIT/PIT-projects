@@ -1,0 +1,19 @@
+# Copy to projects/P001.yaml (use another unused ID for the next project).
+schema_version: 1
+project_id: P001
+name: Example enhancing project
+lead: Example Lead
+lead_github_username: example-lead
+# Use [] if there are no contributors; otherwise add name/username pairs.
+contributors:
+  - name: Example Contributor
+    github_username: example-contributor
+summary: |
+  Describe the science motivation, scope, and expected results.
+
+  The summary can contain several paragraphs and Markdown lists.
+kind: EP
+status: active
+working_group: SCM
+deliverable_ids: []
+github_url: null

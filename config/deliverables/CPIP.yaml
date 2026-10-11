@@ -1,0 +1,18 @@
+working_group: CPIP
+deliverables:
+  - id: CPI-1
+    title: 3x2pt and cluster cosmology
+  - id: CPI-2
+    title: Baryon suppression and nonlinear power spectrum modeling
+  - id: CPI-3
+    title: Intrinsic alignements modeling
+  - id: CPI-4
+    title: Galaxy bias modeling
+  - id: CPI-5
+    title: Cluster systematics
+  - id: CPI-6
+    title: Data challenges and covariance
+  - id: CPI-7
+    title: Mass mapping and high-order statistics
+  - id: CPI-8
+    title: Forecasting HLIS performance
