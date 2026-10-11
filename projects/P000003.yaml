@@ -21,3 +21,7 @@ submission:
   submitted_by: aguinot
   issue_body_sha256: f75b6902a571a851b4a47b29d572d5458e5f93ef13afb22a8574f190e683f6e3
   issue_title_sha256: f0cff333db66a4288275835b84f7ce6934c692f93392040fe1dc27aae7538d35
+acceptance:
+  accepted_at: '2026-10-11T08:38:30Z'
+  pull_request: 4
+  merged_by: aguinot
