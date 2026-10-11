@@ -81,11 +81,28 @@ class Context:
     deliverables: dict[str, set[str]]
     working_groups: dict[str, dict]
     review_owners: tuple[str, ...] = ()
+    form_source: dict | None = None
 
 
-def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Context:
+def _load_legacy_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Context:
     paths = set(paths)
-    schema = json.loads(read_text("schema/project.schema.json"))
+    policy = parse_yaml(read_text("config/policy.yaml"))
+    if not isinstance(policy, dict) or set(policy) != {"kinds", "lead_editable_fields", "contributor_editable_fields"} or not isinstance(policy["kinds"], dict) or not policy["kinds"]:
+        raise Invalid("Invalid policy configuration keys or kinds")
+    source_path = "schema/project.schema.source.json"
+    schema = json.loads(read_text(source_path if source_path in paths else "schema/project.schema.json"))
+    def bind_choices(value):
+        if isinstance(value, dict):
+            if "enum_from" in value:
+                if value.pop("enum_from") != "project_kinds" or "enum" in value:
+                    raise Invalid("Schema enum_from must reference project_kinds without a second enum")
+                value["enum"] = list(policy["kinds"])
+            for item in value.values():
+                bind_choices(item)
+        elif isinstance(value, list):
+            for item in value:
+                bind_choices(item)
+    bind_choices(schema)
     try:
         Draft202012Validator.check_schema(schema)
     except SchemaError as exc:
@@ -107,9 +124,8 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
     if schema.get("additionalProperties") is not False or not required <= set(schema.get("required", [])):
         raise Invalid("The schema must reject unknown fields and require all core fields")
     props = schema["properties"]
-    policy = parse_yaml(read_text("config/policy.yaml"))
-    if not isinstance(policy, dict) or set(policy) != {"kinds", "lead_editable_fields", "contributor_editable_fields"}:
-        raise Invalid("Invalid policy configuration keys")
+    if "default" in props["status"] and not Draft202012Validator(props["status"]).is_valid(props["status"]["default"]):
+        raise Invalid("Initial project status must satisfy its schema constraints")
     if not isinstance(policy["kinds"], dict) or set(policy["kinds"]) != set(props["kind"]["enum"]):
         raise Invalid("Schema kinds and policy kinds must agree")
     for rules in policy["kinds"].values():
@@ -130,13 +146,15 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
     if not set(policy["contributor_editable_fields"]) <= set(policy["lead_editable_fields"]):
         raise Invalid("Contributor fields must also be lead-editable")
     # Review routing and SC authorization are independent. GitHub owns the roster.
-    lines = [line.split("#", 1)[0].strip() for line in read_text(".github/CODEOWNERS").splitlines()]
-    rules = [line for line in lines if line]
-    tokens = rules[0].split() if len(rules) == 1 else []
     owner_pattern = r"@[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?"
-    if len(tokens) < 2 or tokens[0] != "*" or any(not re.fullmatch(owner_pattern, x) for x in tokens[1:]):
-        raise Invalid("CODEOWNERS must contain one wildcard rule with valid GitHub users or teams")
-    review_owners = tuple(tokens[1:])
+    review_owners = ()
+    if not {"config/review.yaml", "config/access.yaml"} <= paths:
+        lines = [line.split("#", 1)[0].strip() for line in read_text(".github/CODEOWNERS").splitlines()]
+        rules = [line for line in lines if line]
+        tokens = rules[0].split() if len(rules) == 1 else []
+        if len(tokens) < 2 or tokens[0] != "*" or any(not re.fullmatch(owner_pattern, x) for x in tokens[1:]):
+            raise Invalid("CODEOWNERS must contain one wildcard rule with valid GitHub users or teams")
+        review_owners = tuple(tokens[1:])
     if "config/access.yaml" in paths:
         access = parse_yaml(read_text("config/access.yaml"))
         if not isinstance(access, dict) or set(access) != {"steering_committee"}:
@@ -150,6 +168,21 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
         sc_team = tuple(review_owners[0][1:].split("/"))
     else:
         raise Invalid("Set config/access.yaml before routing reviews to an individual")
+    if "config/review.yaml" in paths:
+        review = parse_yaml(read_text("config/review.yaml"))
+        if not isinstance(review, dict) or set(review) != {"reviewers"}:
+            raise Invalid("Review configuration requires only reviewers")
+        owners = review["reviewers"]
+        if owners == "steering_committee":
+            owners = ["/".join(sc_team)]
+        if not isinstance(owners, list) or not owners or any(not isinstance(x, str) for x in owners):
+            raise Invalid("reviewers must be a nonempty user/team list or steering_committee")
+        review_owners = tuple("@" + x.removeprefix("@") for x in owners)
+        if len(set(x.lower() for x in review_owners)) != len(review_owners) or any(not re.fullmatch(owner_pattern, x) for x in review_owners):
+            raise Invalid("Review owners must be unique valid GitHub users or teams")
+        if any("/" in x and x[1:].split("/")[0].lower() != sc_team[0].lower() for x in review_owners):
+            raise Invalid("Review teams must belong to the SC organization")
+    form_source = parse_yaml(read_text("config/project-form.yaml")) if "config/project-form.yaml" in paths else None
     group_paths = sorted(p for p in paths if p.startswith("working_groups/"))
     legacy_paths = {p for p in paths if p.startswith("config/deliverables/")}
     definitions = {}
@@ -200,7 +233,32 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
                 raise Invalid(f"Duplicate deliverable ID in {wg}")
             ids.add(item["id"])
         deliverables[wg] = ids
-    return Context(schema, policy, sc_team, deliverables, definitions, review_owners)
+    return Context(schema, policy, sc_team, deliverables, definitions, review_owners, form_source)
+
+
+CONFIG_PATH = "project_workflow/config.yaml"
+
+
+def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Context:
+    """Current settings have one source; older accepted snapshots stay readable."""
+    paths = set(paths)
+    if CONFIG_PATH not in paths:
+        return _load_legacy_context(read_text, paths=paths)
+    config = parse_yaml(read_text(CONFIG_PATH))
+    if not isinstance(config, dict) or set(config) != {"steering_committee", "reviewers", "policy", "schema", "form"}:
+        raise Invalid("Workflow config requires steering_committee, reviewers, policy, schema and form")
+    if not isinstance(config["schema"], dict) or not isinstance(config["form"], dict):
+        raise Invalid("schema and form must be mappings")
+    data = {
+        "config/access.yaml": yaml.safe_dump({"steering_committee": config["steering_committee"]}, sort_keys=False),
+        "config/review.yaml": yaml.safe_dump({"reviewers": config["reviewers"]}, sort_keys=False),
+        "config/policy.yaml": yaml.safe_dump(config["policy"], sort_keys=False),
+        "schema/project.schema.source.json": json.dumps(config["schema"]),
+        "config/project-form.yaml": yaml.safe_dump(config["form"], sort_keys=False),
+    }
+    def read(path):
+        return data[path] if path in data else read_text(path)
+    return _load_legacy_context(read, paths=paths | set(data))
 
 
 def validate_record(record: dict, path: str, ctx: Context):
@@ -236,13 +294,13 @@ def validate_record(record: dict, path: str, ctx: Context):
     unknown = set(record["deliverable_ids"]) - ctx.deliverables[record["working_group"]]
     if unknown:
         raise Invalid("Deliverable IDs must exist in the selected working group's catalogue")
-    from scripts.submission import https_url
+    from project_workflow.submission import https_url
     for link in record.get("related_links", []):
         https_url(link)
     if isinstance(record.get("slack_channel"), str) and not record["slack_channel"].strip():
         raise Invalid("Slack channel cannot be whitespace")
     if "acceptance" in record:
-        from scripts.acceptance import timestamp
+        from project_workflow.acceptance import timestamp
         timestamp(record["acceptance"]["accepted_at"])
     url = record.get("github_url")
     if url is not None and url.rstrip("/").rsplit("/", 1)[-1] in {".", ".."}:
@@ -325,8 +383,9 @@ def local_records(root: Path, ctx: Context):
 
 def load_local_context(root: Path) -> Context:
     paths = []
-    if (root / "config/access.yaml").exists():
-        paths.append("config/access.yaml")
+    for path in (CONFIG_PATH, "config/access.yaml", "config/review.yaml", "config/project-form.yaml", "schema/project.schema.source.json"):
+        if (root / path).exists():
+            paths.append(path)
     for directory in (root / "working_groups", root / "config/deliverables"):
         if directory.is_symlink():
             raise Invalid("Symlinked catalogue directories are not supported")

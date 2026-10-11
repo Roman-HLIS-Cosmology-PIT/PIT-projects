@@ -1,8 +1,8 @@
 import unittest
 import urllib.error
 
-from scripts.project_registry import Invalid
-from scripts.validate_pr import TeamDirectory
+from project_workflow.project_registry import Invalid
+from project_workflow.validate_pr import TeamDirectory
 
 
 class TeamDirectoryTests(unittest.TestCase):

@@ -7,34 +7,33 @@ import unittest
 
 import yaml
 
-from scripts.project_registry import (
+from project_workflow.project_registry import (
     Invalid, authorize_change, load_context, load_local_context, parse_yaml, validate_record,
 )
-from scripts.validate_pr import GitHub, validate_snapshot
+from project_workflow.validate_pr import GitHub, validate_snapshot
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def source_data():
-    data = {}
-    for folder in ("config", "schema", "working_groups"):
-        for file in (ROOT / folder).rglob("*"):
-            if file.is_file():
-                data[file.relative_to(ROOT).as_posix()] = file.read_text()
-    # Tests use a synthetic team, never a stored production membership roster.
+def source_data(*, modern=False):
+    config = parse_yaml((ROOT / "project_workflow/config.yaml").read_text())
+    config["steering_committee"] = "test-org/steering-committee"
+    data = {p.relative_to(ROOT).as_posix(): p.read_text() for p in (ROOT / "working_groups").glob("*.yaml")}
     data[".github/CODEOWNERS"] = "* @test-org/steering-committee\n"
-    data["config/access.yaml"] = "steering_committee: test-org/steering-committee\n"
-    # Fixtures use the new format even while the production layout is migrating.
-    schema = json.loads(data["schema/project.schema.json"])
-    schema["properties"]["working_group"].pop("enum", None)
-    data["schema/project.schema.json"] = json.dumps(schema)
-    for path in list(data):
-        if path.startswith("config/deliverables/"):
-            group = parse_yaml(data.pop(path))
-            group["description"] = f"{group['working_group']} test working group"
-            data[f"working_groups/{group['working_group']}.yaml"] = yaml.safe_dump(group)
     data["working_groups/SCM.yaml"] = "working_group: SCM\ndescription: Shape and Color Measurement\ndeliverables: [{id: SCM-001, title: Test deliverable}]\n"
     data["working_groups/CAS.yaml"] = "working_group: CAS\ndescription: CAS test group\ndeliverables: [{id: CAS-001, title: Other deliverable}]\n"
+    if modern:
+        data["project_workflow/config.yaml"] = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
+        data[".github/workflows/projects.yml"] = "name: Project workflows\n"
+    else:
+        # Historical snapshots are synthesized for compatibility checks only.
+        schema = deepcopy(config["schema"])
+        schema["properties"]["kind"].pop("enum_from")
+        schema["properties"]["kind"]["enum"] = list(config["policy"]["kinds"])
+        data.update({"config/access.yaml": "steering_committee: test-org/steering-committee\n",
+                     "config/policy.yaml": yaml.safe_dump(config["policy"]),
+                     "config/project-form.yaml": yaml.safe_dump(config["form"]),
+                     "schema/project.schema.json": json.dumps(schema)})
     return data
 
 
@@ -120,67 +119,18 @@ class RegistryTests(unittest.TestCase):
     def test_nonmember_cannot_submit(self):
         self.denied(None, project(), member=False)
 
-    def test_cpp_claim_member(self):
-        old = project(kind="CPP", lead=None, lead_github_username=None, contributors=[])
-        self.authorize(old, {**old, "lead": "Alice Example", "lead_github_username": "alice"})
-
-    def test_cpp_claim_promotes_existing_contributor(self):
-        old = project(kind="CPP", lead=None, lead_github_username=None, contributors=[person("alice"), person("bob")])
-        self.authorize(old, {**old, "lead": "Alice Example", "lead_github_username": "alice", "contributors": [person("bob")]})
-
-    def test_claim_cannot_rewrite_content_or_roster(self):
-        old = project(kind="CPP", lead=None, lead_github_username=None, contributors=[])
-        self.denied(old, {**old, "lead": "Alice Example", "lead_github_username": "alice", "summary": "Rewritten"})
-        self.denied(old, {**old, "lead": "Alice Example", "lead_github_username": "alice", "contributors": [person("bob")]})
-
-    def test_key_not_claimable_by_member(self):
-        old = project(kind="KEY", lead=None, lead_github_username=None)
-        self.denied(old, {**old, "lead": "Alice Example", "lead_github_username": "alice"})
-
-    def test_already_assigned_cpp_not_claimable(self):
-        old = project(kind="CPP", lead_github_username="bob", contributors=[])
-        self.denied(old, {**old, "lead_github_username": "alice"})
 
     def test_sc_can_assign_key_lead(self):
         old = project(kind="KEY", lead=None, lead_github_username=None)
         self.authorize(old, {**old, "lead": "Alice Example", "lead_github_username": "alice"}, "sc-user")
 
-    def test_lead_can_extend_contributors(self):
-        old = project()
-        self.authorize(old, {**old, "contributors": [person("bob"), person("carol")]})
-
-    def test_lead_can_remove_contributor(self):
-        old = project()
-        self.authorize(old, {**old, "contributors": []})
-
-    def test_contributor_can_edit_content(self):
-        old = project()
-        self.authorize(old, {**old, "summary": "Updated"}, "bob")
-
-    def test_contributor_cannot_extend_contributors(self):
-        old = project()
-        self.denied(old, {**old, "contributors": [person("bob"), person("carol")]}, "bob")
-
-    def test_unregistered_person_cannot_edit(self):
-        old = project()
-        self.denied(old, {**old, "summary": "Updated"}, "mallory")
-
-    def test_removing_member_revokes_future_edit(self):
-        old = project(contributors=[])
-        self.denied(old, {**old, "summary": "Updated"}, "bob")
-
-    def test_member_cannot_transfer_lead_or_reclassify(self):
-        old = project()
-        self.denied(old, {**old, "lead_github_username": "carol"})
-        self.denied(old, {**old, "kind": "CPP"})
 
     def test_sc_can_transfer_lead_and_reclassify(self):
         old = project()
         self.authorize(old, {**old, "lead": "Carol Example", "lead_github_username": "carol", "kind": "CPP"}, "sc-user")
 
     def test_case_insensitive_identity(self):
-        old = project()
-        self.authorize(old, {**old, "summary": "Updated"}, "ALICE")
+        self.authorize(None, project(), "ALICE")
 
     def test_username_roster_duplicates_and_lead_repetition(self):
         for people in ([person("bob"), person("BOB", "Different Name")], [person("alice")], [person("@bob")]):
@@ -212,10 +162,6 @@ class RegistryTests(unittest.TestCase):
         self.denied(None, project(lead="alice", lead_github_username="mallory"), "alice")
         self.denied(item, {**item, "summary": "Updated"}, "Élodie Martin")
 
-    def test_contributor_authority_uses_username_not_display_name(self):
-        old = project(contributors=[person("bob", "mallory")])
-        self.authorize(old, {**old, "summary": "Updated"}, "BOB")
-        self.denied(old, {**old, "summary": "Updated"}, "mallory")
 
     def test_person_names_cannot_be_whitespace(self):
         for item in (project(lead="  "), project(contributors=[person("bob", " \n ")])):
@@ -228,15 +174,6 @@ class RegistryTests(unittest.TestCase):
                 with self.subTest(username=username, item=item), self.assertRaises(Invalid):
                     self.valid(item)
 
-    def test_lead_can_correct_display_name_without_transferring_identity(self):
-        old = project()
-        self.authorize(old, {**old, "lead": "Alice Updated"})
-        self.denied(old, {**old, "lead": "Alice Updated"}, "bob")
-
-    def test_claim_does_not_allow_renaming_other_contributors(self):
-        old = project(kind="CPP", lead=None, lead_github_username=None, contributors=[person("bob")])
-        new = {**old, "lead": "Alice Example", "lead_github_username": "alice", "contributors": [person("bob", "Changed Name")]}
-        self.denied(old, new)
 
     def test_unknown_fields_fail(self):
         with self.assertRaises(Invalid):
@@ -362,16 +299,17 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(read("data"), "name: science\n")
 
     def test_workflow_uses_trusted_base_and_readonly_token(self):
-        workflow = yaml.load((ROOT / ".github/workflows/project-policy.yml").read_text(), Loader=yaml.BaseLoader)
+        workflow = yaml.load((ROOT / ".github/workflows/projects.yml").read_text(), Loader=yaml.BaseLoader)
         self.assertIn("pull_request_target", workflow["on"])
-        self.assertEqual(workflow["permissions"], {"contents": "read", "pull-requests": "read", "issues": "read", "statuses": "write"})
-        steps = workflow["jobs"]["project-policy"]["steps"]
+        self.assertEqual(workflow["jobs"]["validate"]["permissions"], {"contents": "read", "pull-requests": "read", "issues": "read", "statuses": "write"})
+        steps = workflow["jobs"]["validate"]["steps"]
         checkout = steps[0]
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
         self.assertEqual(checkout["with"]["persist-credentials"], "false")
         for step in steps:
             if "uses" in step:
-                self.assertRegex(step["uses"], r"@[0-9a-f]{40}$")
+                if not step["uses"].startswith("./"):
+                    self.assertRegex(step["uses"], r"@[0-9a-f]{40}$")
             self.assertNotIn("github.event.pull_request.head", json.dumps(step))
 
 

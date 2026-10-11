@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from scripts.project_registry import (
+from project_workflow.project_registry import (
     Invalid, PROJECT_PATH, USERNAME, authorize_change, load_context, load_local_context, parse_yaml, validate_record,
 )
 
@@ -180,9 +180,10 @@ def validate_snapshot(base_tree, head_tree, base_read, head_read, author, *, sc_
     proposed_ctx = load_context(head_read, paths=head_tree)
     form_path = ".github/ISSUE_TEMPLATE/new-project.yml"
     if form_path in base_tree or form_path in head_tree:
-        from scripts.issue_form import matches_form
-        if not matches_form(head_read(form_path), proposed_ctx):
-            raise Invalid("Regenerate the New Project form when changing working groups/deliverables")
+        from project_workflow.issue_form import validate_form
+        validate_form(head_read(form_path), proposed_ctx)
+    from project_workflow.generated_files import validate_outputs
+    validate_outputs(head_read, head_tree, proposed_ctx)
     old = records(base_tree, base_read, base_ctx)
     new = records(head_tree, head_read, proposed_ctx)
     for path in set(old) | set(new):
@@ -204,7 +205,7 @@ def main():
             return 0
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         api = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
-        from scripts.submission import branch_issue, is_submission_bot, issue_version, validate_bot_snapshot
+        from project_workflow.submission import branch_issue, is_submission_bot, issue_version, validate_bot_snapshot
         supplied_number = os.environ.get("POLICY_PR_NUMBER", "")
         number = int(supplied_number) if supplied_number else event["pull_request"]["number"]
         if type(number) is not int or number < 1:
@@ -236,9 +237,14 @@ def main():
         head_read = api.reader(head_tree)
         issue = None
         acceptance_pr = False
+        generation_pr = False
         if is_submission_bot(pr["user"]):
-            from scripts.acceptance import BRANCH_PREFIX as ACCEPTANCE_PREFIX, validate_acceptance_snapshot
-            if pr["head"]["ref"].startswith(ACCEPTANCE_PREFIX):
+            from project_workflow.acceptance import BRANCH_PREFIX as ACCEPTANCE_PREFIX, validate_acceptance_snapshot
+            from project_workflow.sync_generated import GENERATION_BRANCH, validate_generated_snapshot
+            if pr["head"]["ref"] == GENERATION_BRANCH:
+                generation_pr = True
+                validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
+            elif pr["head"]["ref"].startswith(ACCEPTANCE_PREFIX):
                 acceptance_pr = True
                 validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
             else:
@@ -263,6 +269,8 @@ def main():
                 is_sc=team_api.is_active_member(*ctx.sc_team, actor))
         elif acceptance_pr:
             validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
+        elif generation_pr:
+            validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):
             raise Invalid("PR author is no longer an active member of the SC team")
         if publish:

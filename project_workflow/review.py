@@ -1,4 +1,4 @@
-"""Format proposed data for humans and route review requests from CODEOWNERS."""
+"""Format proposed data for humans and route review requests from project_workflow/config.yaml."""
 from __future__ import annotations
 
 import html
@@ -44,7 +44,7 @@ def request_review(api, pr, ctx):
         if "/" in owner:
             org, slug = owner.split("/")
             if org.lower() != api.repo.split("/")[0].lower():
-                from scripts.project_registry import Invalid
+                from project_workflow.project_registry import Invalid
                 raise Invalid("Review teams must belong to this repository's organization")
             if slug.lower() not in requested_teams:
                 teams.append(slug)

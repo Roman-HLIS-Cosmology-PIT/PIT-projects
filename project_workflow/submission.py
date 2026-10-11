@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from scripts.issue_form import FIELD_LABELS, LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID, CURRENT_FIELD_LABELS, CONTRIBUTOR_LIMIT, deliverable_choices, group_options
-from scripts.project_registry import Invalid, USERNAME, authorize_change, validate_record
+from project_workflow.issue_form import FIELD_LABELS, LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID, CURRENT_FIELD_LABELS, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys
+from project_workflow.project_registry import Invalid, USERNAME, authorize_change, validate_record
 
 
 def number(value):
@@ -50,11 +50,11 @@ def issue_version(issue):
             issue.get("state"), labelled(issue))
 
 
-def answers(body):
+def answers(body, ctx=None):
     if not isinstance(body, str) or len(body.encode("utf-8")) > 65536:
         raise Invalid("Issue description is missing or too long (maximum 64 KiB)")
-    labels = {**FIELD_LABELS, **CURRENT_FIELD_LABELS}
-    reverse = {label: key for key, label in labels.items()}
+    labels = {**FIELD_LABELS, **current_labels(ctx)}
+    reverse = label_keys(ctx)
     found, current, fence = {}, None, None
     for line in body.replace("\r\n", "\n").splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -74,12 +74,18 @@ def answers(body):
             found[current].append(line)
         elif line.strip():
             raise Invalid("Keep the original form headings; unexpected text before the first field")
-    expected = FIELD_LABELS if "name" in found else CURRENT_FIELD_LABELS
+    expected = FIELD_LABELS if "name" in found else current_labels(ctx)
     if "name" not in found and "contributors" in found:
         raise Invalid("Do not mix the old contributor list with the new contributor boxes")
-    missing = set(expected) - set(found)
+    required = set(expected) if "name" in found else {key for key in expected if not CONTRIBUTOR_FIELD.fullmatch(key)}
+    if "name" not in found:
+        for key in found:
+            match = CONTRIBUTOR_FIELD.fullmatch(key)
+            if match:
+                required.update({f"contributor_{match[1]}_name", f"contributor_{match[1]}_github_username"})
+    missing = required - set(found)
     if missing:
-        raise Invalid("Restore these form headings: " + ", ".join(expected[k] for k in expected if k in missing))
+        raise Invalid("Restore these form headings: " + ", ".join(labels.get(k, k) for k in sorted(missing)))
     return {key: "\n".join(value).strip() for key, value in found.items()}
 
 
@@ -112,7 +118,7 @@ def proposal(issue, ctx, *, organization_member, is_sc):
     if not organization_member:
         raise Invalid("The Issue author must be an active organization member")
     actor = issue["user"]["login"]
-    values = answers(issue.get("body"))
+    values = answers(issue.get("body"), ctx)
     legacy = "name" in values
     if not legacy:
         values["name"] = issue.get("title") or ""
@@ -132,7 +138,8 @@ def proposal(issue, ctx, *, organization_member, is_sc):
             else:
                 contributors.append({"name": pair[0], "github_username": pair[1]})
     else:
-        for i in range(1, CONTRIBUTOR_LIMIT + 1):
+        slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
+        for i in slots:
             name = optional(values[f"contributor_{i}_name"])
             username = optional(values[f"contributor_{i}_github_username"])
             if bool(name) != bool(username):
@@ -158,15 +165,12 @@ def proposal(issue, ctx, *, organization_member, is_sc):
     booleans = {"Yes": True, "No": False} if legacy else {"True": True, "False": False}
     if values["phd_thesis"] not in booleans:
         errors.append("Part of your PhD thesis?: enter " + " or ".join(booleans))
-    wg = group_options(ctx).get(values["working_group"], values["working_group"])
-    choices = deliverable_choices(ctx)
-    aliases = {f"{group} / {item['id']}": (group, item["id"])
-               for group, definition in ctx.working_groups.items() for item in definition["deliverables"]}
+    wg = option_value(values["working_group"])
     selected = [x.strip() for x in values["deliverable_ids"].split(",") if x.strip()]
     ids = []
     for selection in selected:
-        pair = choices.get(selection) or aliases.get(selection) or aliases.get(f"{wg} / {selection}")
-        if pair is None or pair[0] != wg:
+        pair = deliverable_value(selection, wg)
+        if pair[0] != wg or pair[1] not in ctx.deliverables.get(wg, set()):
             errors.append("Deliverables: select IDs from the chosen working group. Valid choices: " +
                           ", ".join(sorted(ctx.deliverables.get(wg, set()))))
         else:
@@ -176,8 +180,9 @@ def proposal(issue, ctx, *, organization_member, is_sc):
     if errors:
         raise Invalid("\n".join(dict.fromkeys(errors)))
     record = {
-        "schema_version": 1, "project_id": project_id(issue["number"]),
-        "name": values["name"], "kind": values["kind"], "status": "active",
+        "schema_version": ctx.schema["properties"]["schema_version"]["const"], "project_id": project_id(issue["number"]),
+        "name": values["name"], "kind": values["kind"],
+        "status": ctx.schema["properties"]["status"].get("default", "active"),
         "lead": optional(values["lead"]) or None,
         "lead_github_username": lead_username or None,
         "contributors": contributors, "summary": values["summary"],
@@ -229,7 +234,7 @@ def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue,
     if changed_files(base_tree, head_tree) != {path}:
         raise Invalid("Automated PR may add only the single project file associated with its Issue")
     expected = proposal(issue, ctx, organization_member=organization_member, is_sc=is_sc)
-    from scripts.project_registry import parse_yaml
+    from project_workflow.project_registry import parse_yaml
     if parse_yaml(head_read(path)) != expected:
         raise Invalid("PR data differs from the current Issue. Save the Issue to regenerate the proposal")
     validate_record(expected, path, ctx)

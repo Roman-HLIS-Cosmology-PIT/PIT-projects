@@ -15,10 +15,11 @@ import subprocess
 import sys
 import urllib.error
 
-from scripts.project_registry import Invalid, PROJECT_PATH, USERNAME, load_context, parse_yaml, validate_record
-from scripts.submission import branch_issue, changed_files, is_submission_bot, number, project_path, project_yaml
-from scripts.review import request_review
-from scripts.validate_pr import GitHub, TeamDirectory, records
+from project_workflow.project_registry import Invalid, PROJECT_PATH, USERNAME, load_context, parse_yaml, validate_record
+from project_workflow.submission import branch_issue, changed_files, is_submission_bot, number, project_path, project_yaml
+from project_workflow.dispatch import validate_pr as dispatch_validation
+from project_workflow.review import request_review
+from project_workflow.validate_pr import GitHub, TeamDirectory, records
 
 BRANCH_PREFIX = "project-acceptances/pr-"
 
@@ -201,7 +202,7 @@ def process(api, teams, source_number):
     payload = {"title": f"Record project acceptance from PR #{source_number}", "body": body}
     pr = api.request("PATCH", f"pulls/{pr['number']}", payload) if pr else api.request("POST", "pulls", {**payload, "head": branch, "base": "main"})
     request_review(api, pr, ctx)
-    api.request("POST", "actions/workflows/project-policy.yml/dispatches", {"ref": "main", "inputs": {"pr_number": str(pr["number"])}})
+    dispatch_validation(api, pr["number"])
     return "updated" if existing_sha else "created"
 
 

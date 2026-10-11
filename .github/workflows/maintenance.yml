@@ -1,0 +1,72 @@
+name: Project maintenance
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Optional SC PR to regenerate; leave empty to maintain main
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  generate:
+    name: Generate GitHub project files
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    concurrency:
+      group: project-generation-${{ github.event.pull_request.number || inputs.pr_number || 'main' }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted main; proposed files are read as data
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./project_workflow/setup
+      - run: python -m project_workflow.sync_generated
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
+          GENERATION_PR_NUMBER: ${{ inputs.pr_number }}
+
+  registry:
+    name: Registry health and exports
+    needs: generate
+    if: github.event_name != 'pull_request_target' && inputs.pr_number == ''
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./project_workflow/setup
+      - run: python -m project_workflow.project_registry validate
+      - name: Check live SC team access
+        run: python -m project_workflow.validate_pr --check-team
+        env:
+          SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
+      - run: python -m project_workflow.project_registry catalog --output build/projects.json
+      - run: python -m project_workflow.project_registry working-groups --output build/working_groups.yaml
+      - name: Downloadable catalogue exports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: registry-catalogues
+          path: build/
+          if-no-files-found: error
+          retention-days: 30

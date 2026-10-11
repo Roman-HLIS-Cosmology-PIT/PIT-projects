@@ -13,13 +13,14 @@ import sys
 import urllib.error
 import urllib.request
 
-from scripts.project_registry import Invalid, load_context
-from scripts.submission import (
+from project_workflow.project_registry import Invalid, load_context
+from project_workflow.submission import (
     branch_issue, changed_files, is_submission_bot, issue_version, labelled,
     number, project_path, project_yaml, proposal, submission_branch,
 )
-from scripts.validate_pr import GitHub, NoRedirect, TeamDirectory, records
-from scripts.review import proposal_body, request_review, safe_text
+from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
+from project_workflow.dispatch import validate_pr as dispatch_validation
+from project_workflow.review import proposal_body, request_review, safe_text
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
 ACK_MARKER = "<!-- pit-project-submission-received:v1 -->"
@@ -116,9 +117,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         ctx = load_context(base_read, paths=base_tree)
         form_path = ".github/ISSUE_TEMPLATE/new-project.yml"
         if form_path in base_tree:
-            from scripts.issue_form import matches_form
-            if not matches_form(base_read(form_path), ctx):
-                raise Invalid("SC must regenerate the Issue Form to match the working-group catalogue")
+            from project_workflow.issue_form import validate_form
+            validate_form(base_read(form_path), ctx)
         records(base_tree, base_read, ctx)
         member, sc = authenticate(issue, ctx, teams, api.repo)
         record = proposal(issue, ctx, organization_member=member, is_sc=sc)
@@ -181,8 +181,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         # GITHUB_TOKEN-created PRs do not reliably start pull_request_target.
         # Explicit dispatch runs trusted main code and publishes a status on
         # the actual PR head (not on the workflow's main-branch commit).
-        api.request("POST", "actions/workflows/project-policy.yml/dispatches",
-                    {"ref": "main", "inputs": {"pr_number": str(pr["number"])}})
+        dispatch_validation(api, pr["number"])
         message = f"**Proposal validated.** Review PR: https://github.com/{api.repo}/pull/{pr['number']}\n\n"
         message += "Review by the configured Code Owner is still required. To correct the proposal, edit this Issue's title or description and save; the same PR will be updated."
         if warning:

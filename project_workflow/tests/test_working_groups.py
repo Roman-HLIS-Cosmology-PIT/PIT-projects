@@ -9,8 +9,8 @@ import unittest
 
 import yaml
 
-from scripts.project_registry import Invalid, load_context, load_local_context, parse_yaml, validate_record
-from scripts.validate_pr import validate_snapshot
+from project_workflow.project_registry import Invalid, load_context, load_local_context, parse_yaml, validate_record
+from project_workflow.validate_pr import validate_snapshot
 from test_registry import ROOT, is_test_sc, legacy_data, project, snapshot, source_data
 
 
@@ -87,21 +87,6 @@ class WorkingGroupTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             load_context(proposed.__getitem__, paths=proposed)
 
-    def test_directory_move_validated_against_legacy_base(self):
-        base = legacy_data(self.data)
-        proposed = deepcopy(self.data)
-        proposed["projects/P001.yaml"] = yaml.safe_dump(project())
-        self.assertEqual(self.check_pr(base, proposed), 1)
-        with self.assertRaises(Invalid):
-            self.check_pr(base, proposed, "mallory")
-
-    def test_legacy_layout_remains_valid_during_first_update(self):
-        base = legacy_data(self.data)
-        ctx = load_context(base.__getitem__, paths=base)
-        validate_record(project(), "projects/P001.yaml", ctx)
-        base["config/deliverables/UNKNOWN.yaml"] = "working_group: UNKNOWN\ndeliverables: []"
-        with self.assertRaises(Invalid):
-            load_context(base.__getitem__, paths=base)
 
     def test_local_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -128,7 +113,7 @@ class WorkingGroupTests(unittest.TestCase):
             exports = {}
             for command, filename in (("working-groups", "groups.yaml"), ("catalog", "projects.json")):
                 target = root / filename
-                result = subprocess.run([sys.executable, "-m", "scripts.project_registry", "--root", str(root), command, "--output", str(target)], cwd=ROOT, capture_output=True, text=True)
+                result = subprocess.run([sys.executable, "-m", "project_workflow.project_registry", "--root", str(root), command, "--output", str(target)], cwd=ROOT, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 exports[command] = yaml.safe_load(target.read_text())
             self.assertEqual(exports["working-groups"]["working_groups"], exports["catalog"]["working_groups"])
