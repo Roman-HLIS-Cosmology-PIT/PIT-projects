@@ -236,17 +236,12 @@ def main():
             raise Invalid("SC team must belong to this repository's organization")
         head_read = api.reader(head_tree)
         issue = None
-        acceptance_pr = False
         generation_pr = False
         if is_submission_bot(pr["user"]):
-            from project_workflow.acceptance import BRANCH_PREFIX as ACCEPTANCE_PREFIX, validate_acceptance_snapshot
             from project_workflow.sync_generated import GENERATION_BRANCH, validate_generated_snapshot
             if pr["head"]["ref"] == GENERATION_BRANCH:
                 generation_pr = True
                 validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
-            elif pr["head"]["ref"].startswith(ACCEPTANCE_PREFIX):
-                acceptance_pr = True
-                validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
             else:
                 issue = api.get(f"issues/{branch_issue(pr['head']['ref'])}")
                 actor = issue["user"]["login"]
@@ -267,8 +262,6 @@ def main():
             validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, current, ctx,
                 organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
                 is_sc=team_api.is_active_member(*ctx.sc_team, actor))
-        elif acceptance_pr:
-            validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
         elif generation_pr:
             validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):

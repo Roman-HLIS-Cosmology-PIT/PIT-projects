@@ -164,8 +164,14 @@ schema:
       required:
       - issue_number
       - submitted_by
+      - submitted_at
+      - issue_title_sha256
       - issue_body_sha256
       properties:
+        submitted_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$
+          description: Original submission Issue creation time from GitHub, in UTC; unchanged by edits or retries.
         issue_number:
           type: integer
           minimum: 1
@@ -178,24 +184,7 @@ schema:
           type: string
           pattern: ^[0-9a-f]{64}$
       description: Generated provenance; users do not supply this field.
-    acceptance:
-      type: object
-      additionalProperties: false
-      required:
-      - accepted_at
-      - pull_request
-      - merged_by
-      properties:
-        accepted_at:
-          type: string
-          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$
-        pull_request:
-          type: integer
-          minimum: 1
-          maximum: 999999999999
-        merged_by:
-          $ref: '#/$defs/username'
-      description: Verified metadata from the original project-creation PR merge, added by a separate metadata PR.
+
 form:
   name: New Project
   description: Propose a project for review.

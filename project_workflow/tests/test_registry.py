@@ -2,55 +2,27 @@ import base64
 from copy import deepcopy
 import json
 from pathlib import Path
-import tempfile
 import unittest
 
 import yaml
 
-from project_workflow.project_registry import (
-    Invalid, authorize_change, load_context, load_local_context, parse_yaml, validate_record,
-)
+from project_workflow.project_registry import Invalid, authorize_change, load_context, parse_yaml, validate_record
 from project_workflow.validate_pr import GitHub, validate_snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def source_data(*, modern=False):
+def source_data():
     config = parse_yaml((ROOT / "project_workflow/config.yaml").read_text())
     config["steering_committee"] = "test-org/steering-committee"
     data = {p.relative_to(ROOT).as_posix(): p.read_text() for p in (ROOT / "working_groups").glob("*.yaml")}
-    data[".github/CODEOWNERS"] = "* @test-org/steering-committee\n"
     data["working_groups/SCM.yaml"] = "working_group: SCM\ndescription: Shape and Color Measurement\ndeliverables: [{id: SCM-001, title: Test deliverable}]\n"
     data["working_groups/CAS.yaml"] = "working_group: CAS\ndescription: CAS test group\ndeliverables: [{id: CAS-001, title: Other deliverable}]\n"
-    if modern:
-        data["project_workflow/config.yaml"] = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
-        data[".github/workflows/projects.yml"] = "name: Project workflows\n"
-    else:
-        # Historical snapshots are synthesized for compatibility checks only.
-        schema = deepcopy(config["schema"])
-        schema["properties"]["kind"].pop("enum_from")
-        schema["properties"]["kind"]["enum"] = list(config["policy"]["kinds"])
-        data.update({"config/access.yaml": "steering_committee: test-org/steering-committee\n",
-                     "config/policy.yaml": yaml.safe_dump(config["policy"]),
-                     "config/project-form.yaml": yaml.safe_dump(config["form"]),
-                     "schema/project.schema.json": json.dumps(schema)})
+    data["project_workflow/config.yaml"] = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
+    data[".github/workflows/projects.yml"] = "name: Project workflows\n"
+    from project_workflow.generated_files import render
+    data.update(render(load_context(data.__getitem__, paths=data)))
     return data
-
-
-def legacy_data(data):
-    """Build an old-layout snapshot to exercise the trusted-base migration."""
-    result = deepcopy(data)
-    groups = []
-    for path in list(result):
-        if path.startswith("working_groups/"):
-            group = parse_yaml(result.pop(path))
-            groups.append(group["working_group"])
-            del group["description"]
-            result[f"config/deliverables/{group['working_group']}.yaml"] = yaml.safe_dump(group)
-    schema = json.loads(result["schema/project.schema.json"])
-    schema["properties"]["working_group"]["enum"] = sorted(groups)
-    result["schema/project.schema.json"] = json.dumps(schema)
-    return result
 
 
 def person(username, name=None):
@@ -222,30 +194,36 @@ class RegistryTests(unittest.TestCase):
                 parse_yaml(text)
 
     def test_remote_schema_ref_rejected(self):
-        schema = json.loads(self.data["schema/project.schema.json"])
+        config = parse_yaml(self.data["project_workflow/config.yaml"])
+        schema = config["schema"]
         schema["properties"]["name"] = {"$ref": "https://example.com/schema"}
-        self.data["schema/project.schema.json"] = json.dumps(schema)
+        self.data["project_workflow/config.yaml"] = yaml.safe_dump(config)
         with self.assertRaises(Invalid):
             load_context(self.data.__getitem__, paths=self.data)
 
     def test_add_optional_field_without_changing_validator(self):
-        schema = json.loads(self.data["schema/project.schema.json"])
+        config = parse_yaml(self.data["project_workflow/config.yaml"])
+        schema = config["schema"]
         schema["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
-        self.data["schema/project.schema.json"] = json.dumps(schema)
+        self.data["project_workflow/config.yaml"] = yaml.safe_dump(config)
         ctx = load_context(self.data.__getitem__, paths=self.data)
         validate_record(project(tags=["weak-lensing"]), "projects/P001.yaml", ctx)
 
     def test_add_enum_status_without_changing_validator(self):
-        schema = json.loads(self.data["schema/project.schema.json"])
+        config = parse_yaml(self.data["project_workflow/config.yaml"])
+        schema = config["schema"]
         schema["properties"]["status"]["enum"].append("archived")
-        self.data["schema/project.schema.json"] = json.dumps(schema)
+        self.data["project_workflow/config.yaml"] = yaml.safe_dump(config)
         ctx = load_context(self.data.__getitem__, paths=self.data)
         validate_record(project(status="archived"), "projects/P001.yaml", ctx)
 
-    def test_unknown_kind_policy_fails_closed(self):
-        policy = parse_yaml(self.data["config/policy.yaml"])
+    def test_schema_kind_choices_must_come_from_policy(self):
+        config = parse_yaml(self.data["project_workflow/config.yaml"])
+        policy = config["policy"]
         del policy["kinds"]["KEY"]
-        self.data["config/policy.yaml"] = yaml.safe_dump(policy)
+        config["schema"]["properties"]["kind"].pop("enum_from")
+        config["schema"]["properties"]["kind"]["enum"] = ["EP", "CPP", "KEY"]
+        self.data["project_workflow/config.yaml"] = yaml.safe_dump(config)
         with self.assertRaises(Invalid):
             load_context(self.data.__getitem__, paths=self.data)
 
@@ -254,21 +232,23 @@ class RegistryTests(unittest.TestCase):
         ctx = load_context(self.data.__getitem__, paths=self.data)
         self.assertEqual(ctx.review_owners, ("@aguinot",))
         self.assertEqual(ctx.sc_team, ("test-org", "steering-committee"))
-        del self.data["config/access.yaml"]
+        del self.data["project_workflow/config.yaml"]
         with self.assertRaises(Invalid):
             load_context(self.data.__getitem__, paths=self.data)
 
     def test_proposed_sc_team_cannot_grant_requester_permission(self):
         proposed = deepcopy(self.data)
         proposed[".github/CODEOWNERS"] = "* @test-org/mallory-team\n"
-        proposed["config/access.yaml"] = "steering_committee: test-org/mallory-team\n"
+        config = parse_yaml(proposed["project_workflow/config.yaml"])
+        config["steering_committee"] = "test-org/mallory-team"
+        proposed["project_workflow/config.yaml"] = yaml.safe_dump(config)
         with self.assertRaises(Invalid):
             validate_snapshot(snapshot(self.data), snapshot(proposed), self.data.__getitem__, proposed.__getitem__, "mallory", sc_lookup=is_test_sc)
 
     def test_sc_data_pr_accepted_but_proposed_code_never_run(self):
         proposed = deepcopy(self.data)
         proposed["projects/P001.yaml"] = yaml.safe_dump(project())
-        proposed["scripts/evil.py"] = "raise AssertionError('must never execute')"
+        proposed["project_workflow/evil.py"] = "raise AssertionError('must never execute')"
         count = validate_snapshot(snapshot(self.data), snapshot(proposed), self.data.__getitem__, proposed.__getitem__, "SC-USER", sc_lookup=is_test_sc)
         self.assertEqual(count, 1)
 

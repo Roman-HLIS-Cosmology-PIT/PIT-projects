@@ -3,7 +3,6 @@ from copy import deepcopy
 from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import io
-import json
 import os
 from pathlib import Path
 import sys
@@ -12,15 +11,11 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 
-import yaml
 
 from project_workflow import issue_intake, validate_pr
-from project_workflow.issue_form import BOT_ID, BOT_LOGIN, FIELD_LABELS, generated_text
+from project_workflow.issue_form import BOT_ID, BOT_LOGIN, current_labels
 from project_workflow.project_registry import Invalid, load_context, parse_yaml, validate_record
-from project_workflow.submission import (
-    answers, changed_files, is_submission_bot, project_path, project_yaml,
-    proposal, validate_bot_snapshot,
-)
+from project_workflow.submission import project_path, project_yaml, proposal, validate_bot_snapshot
 from test_registry import source_data
 
 BOT = {"id": BOT_ID, "login": BOT_LOGIN, "type": "Bot"}
@@ -28,16 +23,22 @@ BASE_SHA = "a" * 40
 
 
 def issue_fixture(**changes):
-    values = {"name": "Shape measurement validation", "kind": "EP",
-              "lead": "Alice Example", "lead_github_username": "alice",
-              "contributors": "```text\nBob Example | bob\n```",
+    data = source_data()
+    config = load_context(data.__getitem__, paths=data)
+    labels = current_labels(config)
+    values = {"kind": "EP", "lead": "Alice Example", "lead_github_username": "alice",
               "working_group": "SCM", "deliverable_ids": "SCM / SCM-001",
-              "phd_thesis": "Yes", "slack_channel": "#scm-shapes",
+              "phd_thesis": "True", "slack_channel": "#scm-shapes",
               "summary": "Measure shear calibration.\n\n### Scientific goals\nAssess selection effects.",
               "github_url": "_No response_", "related_links": "```text\nhttps://example.org/paper\n```"}
+    for key in labels:
+        if key.startswith("contributor_"):
+            values[key] = "_No response_"
+    values.update(contributor_1_name="Bob Example", contributor_1_github_username="bob")
+    title = changes.pop("title", "Shape measurement validation")
     values.update(changes)
-    body = "\n\n".join(f"### {FIELD_LABELS[k]}\n\n{v}" for k, v in values.items())
-    return {"number": 12, "state": "open", "body": body,
+    body = "\n\n".join(f"### {label}\n\n{values[k]}" for k, label in labels.items())
+    return {"number": 12, "state": "open", "title": title, "body": body, "created_at": "2026-10-11T06:00:00Z",
             "labels": [{"name": "new-project"}],
             "user": {"login": "alice", "id": 123, "type": "User"}}
 
@@ -186,7 +187,7 @@ class SubmissionTests(unittest.TestCase):
 
     def test_wrong_group_and_contributor_errors_are_combined(self):
         with self.assertRaises(Invalid) as error:
-            self.parse(issue_fixture(deliverable_ids="CAS / CAS-001", contributors="Bob Example"))
+            self.parse(issue_fixture(deliverable_ids="CAS / CAS-001", contributor_1_github_username=""))
 
     def test_nonmember_rejected_even_if_sc_flag_is_true(self):
         with self.assertRaises(Invalid):
@@ -199,13 +200,13 @@ class SubmissionTests(unittest.TestCase):
 
     def test_sc_can_declare_unassigned_cpp_key(self):
         for kind in ("CPP", "KEY"):
-            record = self.parse(issue_fixture(kind=kind, lead="_No response_", lead_github_username="_No response_", contributors="_No response_"), sc=True)
+            record = self.parse(issue_fixture(kind=kind, lead="_No response_", lead_github_username="_No response_", contributor_1_name="_No response_", contributor_1_github_username="_No response_"), sc=True)
             self.assertIsNone(record["lead"])
             self.assertEqual(record["contributors"], [])
 
     def test_member_cannot_impersonate_another_lead(self):
         with self.assertRaises(Invalid):
-            self.parse(issue_fixture(lead_github_username="bob", contributors="_No response_"))
+            self.parse(issue_fixture(lead_github_username="bob", contributor_1_name="_No response_", contributor_1_github_username="_No response_"))
 
     def test_missing_lead_or_half_lead_rejected(self):
         for fields in ({"lead": ""}, {"lead": "", "lead_github_username": ""}):
@@ -213,19 +214,20 @@ class SubmissionTests(unittest.TestCase):
                 self.parse(issue_fixture(**fields))
 
     def test_optional_blank_code_blocks_are_empty_lists(self):
-        record = self.parse(issue_fixture(contributors="```text\n_No response_\n```", related_links="```text\n\n```"))
+        record = self.parse(issue_fixture(contributor_1_name="_No response_", contributor_1_github_username="_No response_", related_links="```text\n\n```"))
         self.assertEqual(record["contributors"], [])
         self.assertEqual(record["related_links"], [])
 
     def test_empty_required_fields_and_invalid_boolean(self):
-        for fields in ({"name": ""}, {"summary": ""}, {"deliverable_ids": ""}, {"phd_thesis": "Maybe"}):
+        for fields in ({"title": ""}, {"summary": ""}, {"deliverable_ids": ""}, {"phd_thesis": "Maybe"}):
             with self.subTest(fields=fields), self.assertRaises(Invalid):
                 self.parse(issue_fixture(**fields))
 
     def test_duplicate_case_insensitive_contributor_and_lead_rejected(self):
-        for roster in ("Bob | bob\nBob Again | BOB", "Alice | ALICE"):
-            with self.subTest(roster=roster), self.assertRaises(Invalid):
-                self.parse(issue_fixture(contributors=roster))
+        for changes in ({"contributor_2_name": "Bob Again", "contributor_2_github_username": "BOB"},
+                        {"contributor_1_name": "Alice", "contributor_1_github_username": "ALICE"}):
+            with self.subTest(changes=changes), self.assertRaises(Invalid):
+                self.parse(issue_fixture(**changes))
 
     def test_invalid_related_links_and_unsafe_github_urls(self):
         for link in ("http://example.org", "https://user:secret@example.org", "https://example.org:bad", "https://"):
@@ -241,7 +243,7 @@ class SubmissionTests(unittest.TestCase):
 
     def test_missing_or_duplicate_heading_and_oversize_rejected(self):
         issue = issue_fixture()
-        for body in (issue["body"].replace("### Contributors", "### People"), issue["body"] + "\n### Project title\nReplacement", "x" * 65537):
+        for body in (issue["body"].replace("### Project kind", "### Removed heading"), issue["body"] + "\n### Project kind\nReplacement", "x" * 65537):
             with self.subTest(body=body[:30]), self.assertRaises(Invalid):
                 self.parse({**issue, "body": body})
 
@@ -279,10 +281,10 @@ class IntakeIntegrationTests(unittest.TestCase):
         self.assertNotEqual(api.pr["head"]["sha"], first_head)
         self.assertEqual(len([w for w in api.writes if w[:2] == ("POST", "pulls")]), 1)
         self.assertEqual(len(api.comments), 2)
-        self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"pr_number": "99"}})
+        self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"operation": "validate", "pr_number": "99"}})
 
     def test_invalid_new_issue_has_feedback_and_no_pr(self):
-        api = FakeAPI(issue_fixture(contributors="Missing username"))
+        api = FakeAPI(issue_fixture(contributor_1_github_username=""))
         self.assertEqual(self.run_process(api), "invalid")
         self.assertIsNone(api.pr)
         self.assertNotIn("git/refs", [x[1] for x in api.writes])
@@ -359,7 +361,7 @@ class IntakeIntegrationTests(unittest.TestCase):
     def test_unrelated_branch_edits_are_not_overwritten(self):
         api = FakeAPI()
         self.run_process(api)
-        api.data[api.pr["head"]["sha"]]["scripts/evil.py"] = "print('unsafe')"
+        api.data[api.pr["head"]["sha"]]["project_workflow/evil.py"] = "print('unsafe')"
         self.assertEqual(self.run_process(api), "invalid")
 
     def test_bot_pr_policy_rechecks_live_issue_and_publishes_on_head(self):

@@ -51,7 +51,7 @@ class MaintenanceAPI(GenerationAPI):
 class MaintenanceTests(unittest.TestCase):
     def changed_main(self, protected=False):
         api = MaintenanceAPI(protected=protected)
-        api.source("config/project-form.yaml", lambda d: d.update(description="Updated directly on main"))
+        api.source("form", lambda d: d.update(description="Updated directly on main"))
         return api
 
     def test_main_commit_generates_only_native_outputs_and_retries_are_noop(self):
@@ -156,7 +156,7 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_configuration_changes_that_need_no_native_output_make_no_commit(self):
         api = MaintenanceAPI()
-        api.source("schema/project.schema.source.json", lambda d: d["properties"]["status"].update(default="paused"))
+        api.source("schema", lambda d: d["properties"]["status"].update(default="paused"))
         self.assertEqual(synchronize_main(api, checkout_sha=BASE_SHA), "unchanged")
         self.assertEqual(api.writes, [])
 

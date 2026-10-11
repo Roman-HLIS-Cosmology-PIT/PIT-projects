@@ -189,7 +189,7 @@ def synchronize(api, teams, pr_number, *, checkout_sha=None):
     if pr["head"]["repo"]["full_name"] != api.repo or pr["head"]["ref"] == "main":
         raise Invalid("Generation only writes existing PR branches in this repository")
     if pr["user"].get("type") != "User":
-        return "skipped"  # Issue and acceptance PRs have their own narrow writers.
+        return "skipped"  # Submission PRs have their own narrow writer.
     changed = api.pages(f"pulls/{pr_number}/files")
     if not any(relevant(item["filename"]) or relevant(item.get("previous_filename", "")) for item in changed):
         return "skipped"

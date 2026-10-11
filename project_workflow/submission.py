@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from project_workflow.issue_form import FIELD_LABELS, LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID, CURRENT_FIELD_LABELS, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys
-from project_workflow.project_registry import Invalid, USERNAME, authorize_change, validate_record
+from project_workflow.issue_form import LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys
+from project_workflow.project_registry import Invalid, USERNAME, authorize_change, utc_timestamp, validate_record
 
 
 def number(value):
@@ -47,13 +47,13 @@ def labelled(issue):
 def issue_version(issue):
     # updated_at includes comments/labels, which do not change the proposal.
     return (issue.get("title") or "", issue.get("body") or "", issue["user"]["login"], issue["user"].get("id"),
-            issue.get("state"), labelled(issue))
+            issue.get("state"), labelled(issue), issue.get("created_at"))
 
 
-def answers(body, ctx=None):
+def answers(body, ctx):
     if not isinstance(body, str) or len(body.encode("utf-8")) > 65536:
         raise Invalid("Issue description is missing or too long (maximum 64 KiB)")
-    labels = {**FIELD_LABELS, **current_labels(ctx)}
+    labels = current_labels(ctx)
     reverse = label_keys(ctx)
     found, current, fence = {}, None, None
     for line in body.replace("\r\n", "\n").splitlines():
@@ -74,15 +74,11 @@ def answers(body, ctx=None):
             found[current].append(line)
         elif line.strip():
             raise Invalid("Keep the original form headings; unexpected text before the first field")
-    expected = FIELD_LABELS if "name" in found else current_labels(ctx)
-    if "name" not in found and "contributors" in found:
-        raise Invalid("Do not mix the old contributor list with the new contributor boxes")
-    required = set(expected) if "name" in found else {key for key in expected if not CONTRIBUTOR_FIELD.fullmatch(key)}
-    if "name" not in found:
-        for key in found:
-            match = CONTRIBUTOR_FIELD.fullmatch(key)
-            if match:
-                required.update({f"contributor_{match[1]}_name", f"contributor_{match[1]}_github_username"})
+    required = {key for key in labels if not CONTRIBUTOR_FIELD.fullmatch(key)}
+    for key in found:
+        match = CONTRIBUTOR_FIELD.fullmatch(key)
+        if match:
+            required.update({f"contributor_{match[1]}_name", f"contributor_{match[1]}_github_username"})
     missing = required - set(found)
     if missing:
         raise Invalid("Restore these form headings: " + ", ".join(labels.get(k, k) for k in sorted(missing)))
@@ -119,33 +115,22 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         raise Invalid("The Issue author must be an active organization member")
     actor = issue["user"]["login"]
     values = answers(issue.get("body"), ctx)
-    legacy = "name" in values
-    if not legacy:
-        values["name"] = issue.get("title") or ""
+    values["name"] = issue.get("title") or ""
+    labels = {"name": "Project title", **current_labels(ctx)}
     errors = []
     for key in ("name", "kind", "working_group", "summary", "phd_thesis", "deliverable_ids"):
         values[key] = optional(values[key])
         if not values[key]:
-            errors.append(f"{FIELD_LABELS[key]}: an answer is required")
+            errors.append(f"{labels[key]}: an answer is required")
     contributors = []
-    if legacy:
-        for line in list_text(values["contributors"]).splitlines():
-            if not line.strip():
-                continue
-            pair = [x.strip() for x in line.split("|")]
-            if len(pair) != 2 or not all(pair):
-                errors.append("Contributors: use Name | github_username, one person per line")
-            else:
-                contributors.append({"name": pair[0], "github_username": pair[1]})
-    else:
-        slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
-        for i in slots:
-            name = optional(values[f"contributor_{i}_name"])
-            username = optional(values[f"contributor_{i}_github_username"])
-            if bool(name) != bool(username):
-                errors.append(f"Contributor {i}: fill both name and GitHub username, or leave both blank")
-            elif name:
-                contributors.append({"name": name, "github_username": username})
+    slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
+    for i in slots:
+        name = optional(values[f"contributor_{i}_name"])
+        username = optional(values[f"contributor_{i}_github_username"])
+        if bool(name) != bool(username):
+            errors.append(f"Contributor {i}: fill both name and GitHub username, or leave both blank")
+        elif name:
+            contributors.append({"name": name, "github_username": username})
     links = [x.strip() for x in list_text(values["related_links"]).splitlines() if x.strip()]
     for link in links:
         try:
@@ -162,7 +147,7 @@ def proposal(issue, ctx, *, organization_member, is_sc):
     github_url = optional(values["github_url"])
     if github_url and not re.fullmatch(r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+/?", github_url):
         errors.append("Main GitHub repository: use https://github.com/OWNER/REPOSITORY without a branch/file path, or leave it blank")
-    booleans = {"Yes": True, "No": False} if legacy else {"True": True, "False": False}
+    booleans = {"True": True, "False": False}
     if values["phd_thesis"] not in booleans:
         errors.append("Part of your PhD thesis?: enter " + " or ".join(booleans))
     wg = option_value(values["working_group"])
@@ -194,8 +179,8 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         "submission": {"issue_number": issue["number"], "submitted_by": actor,
                        "issue_body_sha256": hashlib.sha256(issue["body"].encode("utf-8")).hexdigest()},
     }
-    if not legacy:
-        record["submission"]["issue_title_sha256"] = hashlib.sha256(issue["title"].encode("utf-8")).hexdigest()
+    record["submission"]["issue_title_sha256"] = hashlib.sha256(issue["title"].encode("utf-8")).hexdigest()
+    record["submission"]["submitted_at"] = utc_timestamp(issue.get("created_at"))
     if any(c in record["name"] for c in "\r\n"):
         raise Invalid("Project title must be a single line")
     validate_record(record, project_path(issue["number"]), ctx)

@@ -1,6 +1,5 @@
 """Optional offline checks for generation scope, authorization and retries."""
 from copy import deepcopy
-import json
 import unittest
 
 import yaml
@@ -20,7 +19,7 @@ HEAD_SHA = "b" * 40
 class GenerationAPI(FakeAPI):
     def __init__(self):
         super().__init__()
-        self.base = source_data(modern=True)
+        self.base = source_data()
         self.base.update(render(load_context(self.base.__getitem__, paths=self.base)))
         self.data[BASE_SHA] = self.base
         self.head = deepcopy(self.base)
@@ -38,10 +37,9 @@ class GenerationAPI(FakeAPI):
         return super().pages(endpoint)
 
     def source(self, path, edit):
-        sections = {"config/project-form.yaml": "form", "config/policy.yaml": "policy", "schema/project.schema.source.json": "schema"}
-        if path in sections:
+        if path in {"form", "policy", "schema"}:
             config = yaml.safe_load(self.head[CONFIG_PATH])
-            edit(config[sections[path]])
+            edit(config[path])
             self.head[CONFIG_PATH] = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
         else:
             value = yaml.safe_load(self.head[path])
@@ -63,8 +61,8 @@ class GenerationTests(unittest.TestCase):
         return synchronize(self.api, self.teams, 99, checkout_sha=BASE_SHA)
 
     def test_source_edit_appends_only_outputs_and_is_idempotent(self):
-        self.api.source("config/project-form.yaml", lambda d: d.update(description="Custom proposal wording"))
-        self.api.head["scripts/untrusted.py"] = "raise RuntimeError('must never execute PR code')\n"
+        self.api.source("form", lambda d: d.update(description="Custom proposal wording"))
+        self.api.head["project_workflow/untrusted.py"] = "raise RuntimeError('must never execute PR code')\n"
         before = deepcopy(self.api.head)
         self.assertEqual(self.run_sync(), "updated")
         sha = self.api.pr["head"]["sha"]
@@ -96,30 +94,25 @@ class GenerationTests(unittest.TestCase):
         self.assertIn("* @test-org/steering-committee", head[".github/CODEOWNERS"])
 
     def test_kind_rules_populate_form_and_schema(self):
-        self.api.source("config/policy.yaml", lambda d: d["kinds"].update(TEST={"member_can_create": False, "member_can_claim": False, "allow_unassigned": True}))
+        self.api.source("policy", lambda d: d["kinds"].update(TEST={"member_can_create": False, "member_can_claim": False, "allow_unassigned": True}))
         self.run_sync()
         head = self.api.data[self.api.pr["head"]["sha"]]
         self.assertIn("TEST", load_context(head.__getitem__, paths=head).schema["properties"]["kind"]["enum"])
         spec = yaml.safe_load(head[".github/ISSUE_TEMPLATE/new-project.yml"])
         self.assertIn("TEST", next(f for f in spec["body"] if f.get("id") == "kind")["attributes"]["options"])
 
-    def test_custom_label_and_alias_are_used_by_submission_parser(self):
+    def test_custom_label_is_used_by_submission_parser(self):
         def rename(data):
-            field = next(f for f in data["body"] if f.get("id") == "summary")
-            field["attributes"]["label"] = "Scientific goals"
-            field["aliases"] = ["Earlier description label"]
-        self.api.source("config/project-form.yaml", rename)
+            next(f for f in data["body"] if f.get("id") == "summary")["attributes"]["label"] = "Scientific goals"
+        self.api.source("form", rename)
         ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
         issue = current_issue()
-        for label in ("Scientific goals", "Earlier description label", "Description"):
-            changed = deepcopy(issue)
-            changed["body"] = changed["body"].replace("### Description\n", f"### {label}\n")
-            self.assertEqual(proposal(changed, ctx, organization_member=True, is_sc=False)["summary"], "Science description.")
-        self.assertNotIn("aliases", next(f for f in form(ctx)["body"] if f.get("id") == "summary"))
-
+        issue["body"] = issue["body"].replace("### Description\n", "### Scientific goals\n")
+        self.assertEqual(proposal(issue, ctx, organization_member=True, is_sc=False)["summary"], "Science description.")
     def test_descriptive_kind_options_keep_stable_codes_and_permissions(self):
-        self.api.source("config/policy.yaml", lambda d: d["kinds"]["EP"].update(description="Enhancing Project"))
-        self.api.source("config/policy.yaml", lambda d: d["kinds"]["CPP"].update(description="Critical Path Project"))
+        self.api.source("policy", lambda d: d["kinds"]["KEY"].pop("description", None))
+        self.api.source("policy", lambda d: d["kinds"]["EP"].update(description="Enhancing Project"))
+        self.api.source("policy", lambda d: d["kinds"]["CPP"].update(description="Critical Path Project"))
         self.run_sync()
         head = self.api.data[self.api.pr["head"]["sha"]]
         ctx = load_context(head.__getitem__, paths=head)
@@ -154,7 +147,7 @@ class GenerationTests(unittest.TestCase):
             for suffix, label in (("name", "Contributor 6 name"), ("github_username", "Contributor 6 GitHub username")):
                 data["body"].append({"type": "input", "id": f"contributor_6_{suffix}",
                                      "attributes": {"label": label}, "validations": {"required": False}})
-        self.api.source("config/project-form.yaml", add_slot)
+        self.api.source("form", add_slot)
         ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
         self.assertTrue(any(f.get("id") == "contributor_6_name" for f in form(ctx)["body"]))
         # Previously created Issues have no slot 6 and remain editable.
@@ -180,7 +173,7 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(self.api.writes, [])
 
     def test_main_fork_and_stale_checkout_are_rejected(self):
-        self.api.source("config/project-form.yaml", lambda d: d.update(description="New text"))
+        self.api.source("form", lambda d: d.update(description="New text"))
         original = deepcopy(self.api.pr)
         for mutate in (lambda p: p["head"].update(ref="main"), lambda p: p["head"]["repo"].update(full_name="someone/fork")):
             self.api.pr = deepcopy(original)
@@ -193,14 +186,14 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(self.api.writes, [])
 
     def test_branch_advance_is_not_overwritten(self):
-        self.api.source("config/project-form.yaml", lambda d: d.update(description="New text"))
+        self.api.source("form", lambda d: d.update(description="New text"))
         self.api.refs["config/update"] = "c" * 40
         with self.assertRaises(Invalid):
             self.run_sync()
         self.assertEqual(self.api.writes, [])
 
     def test_dispatch_failure_can_retry_without_duplicate_commit(self):
-        self.api.source("config/project-form.yaml", lambda d: d.update(description="New text"))
+        self.api.source("form", lambda d: d.update(description="New text"))
         request = self.api.request
         def fail_dispatch(method, endpoint, payload):
             if endpoint.endswith("/dispatches"):
@@ -226,7 +219,7 @@ class GenerationTests(unittest.TestCase):
         path = ".github/ISSUE_TEMPLATE/new-project.yml"
         reformatted[path] = yaml.safe_dump(yaml.safe_load(reformatted[path]), sort_keys=True, width=70)
         validate_outputs(reformatted.__getitem__, reformatted, ctx)
-        self.api.source("config/project-form.yaml", lambda d: d.update(description="Changed source"))
+        self.api.source("form", lambda d: d.update(description="Changed source"))
         head_ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
         with self.assertRaises(Invalid):
             validate_outputs(self.api.head.__getitem__, self.api.head, head_ctx)

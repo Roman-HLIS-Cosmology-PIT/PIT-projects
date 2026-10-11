@@ -1,6 +1,5 @@
-"""Catalogue discovery, extension, export and trusted-base migration checks."""
+"""Catalogue discovery, extension, export and authorization checks."""
 from copy import deepcopy
-import json
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +10,7 @@ import yaml
 
 from project_workflow.project_registry import Invalid, load_context, load_local_context, parse_yaml, validate_record
 from project_workflow.validate_pr import validate_snapshot
-from test_registry import ROOT, is_test_sc, legacy_data, project, snapshot, source_data
+from test_registry import ROOT, is_test_sc, project, snapshot, source_data
 
 
 class WorkingGroupTests(unittest.TestCase):
@@ -19,6 +18,8 @@ class WorkingGroupTests(unittest.TestCase):
         self.data = source_data()
 
     def check_pr(self, base, proposed, author="sc-user"):
+        from project_workflow.generated_files import render
+        proposed = {**proposed, **render(load_context(proposed.__getitem__, paths=proposed))}
         return validate_snapshot(snapshot(base), snapshot(proposed), base.__getitem__, proposed.__getitem__, author, sc_lookup=is_test_sc)
 
     def test_add_group_without_schema_or_code_change(self):
@@ -77,13 +78,10 @@ class WorkingGroupTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(Invalid):
                 load_context(proposed.__getitem__, paths=proposed)
 
-    def test_new_layout_rejects_second_enum_or_catalogue(self):
-        schema = json.loads(self.data["schema/project.schema.json"])
-        schema["properties"]["working_group"]["enum"] = ["SCM", "CAS", "CPIP"]
-        proposed = {**self.data, "schema/project.schema.json": json.dumps(schema)}
-        with self.assertRaises(Invalid):
-            load_context(proposed.__getitem__, paths=proposed)
-        proposed = {**self.data, "config/deliverables/SCM.yaml": "working_group: SCM\ndeliverables: []"}
+    def test_group_choices_cannot_be_duplicated_in_schema(self):
+        config = parse_yaml(self.data["project_workflow/config.yaml"])
+        config["schema"]["properties"]["working_group"]["enum"] = ["SCM", "CAS", "CPIP"]
+        proposed = {**self.data, "project_workflow/config.yaml": yaml.safe_dump(config)}
         with self.assertRaises(Invalid):
             load_context(proposed.__getitem__, paths=proposed)
 

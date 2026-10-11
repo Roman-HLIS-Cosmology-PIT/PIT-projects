@@ -19,7 +19,7 @@ collaboration-appropriate information. No email address is collected.
 | `projects/P<digits>.yaml` | Accepted project records | Through proposal PRs or an SC administrative change |
 | `.github/ISSUE_TEMPLATE/new-project.yml` | Native GitHub form | Generated automatically |
 | `.github/CODEOWNERS` | Native GitHub review routing | Generated automatically |
-| `.github/workflows/projects.yml` | Issue intake, PR validation and acceptance | Only for changes to automation behavior |
+| `.github/workflows/projects.yml` | Issue intake and PR validation | Only for changes to automation behavior |
 | `.github/workflows/maintenance.yml` | Generation, registry health and downloadable exports | Only for changes to automation behavior |
 | `project_workflow/` | Implementation, dependencies, shared setup and optional developer checks | Only for implementation changes |
 
@@ -65,10 +65,10 @@ Examples of changes requiring only one source edit:
 | Add a deliverable or change its title | The relevant working-group YAML |
 
 The `new-project` label is the fixed intake marker and must remain in
-`form.labels`. For renamed field labels, `aliases: [Previous label]` on the
-control lets existing Issues keep their original headings. Existing stock
-labels and earlier contributor layouts remain readable. Adding contributor
-slots also keeps older Issues valid without requiring the new headings.
+`form.labels`. Answer headings come from the labels in the current config.
+If you rename an answer label, update that heading in any open submission
+Issue before revalidating it. Contributor slots are optional; adding a slot
+does not require existing submitters to fill it in.
 
 An optional new project property can be defined under `schema.properties`
 without another schema file. Adding a completely new input type or behavior to
@@ -102,7 +102,6 @@ the project schema. Different groups may reuse a deliverable ID.
 | --- | --- | --- |
 | Project workflows / submission | New-project Issue events or manual `submit` retry on main | Acknowledge, authenticate, validate, comment and create/update one proposal PR |
 | Project workflows / validation | Open PR events targeting main or manual `validate` on main | Independently publish **Project policy** on the current proposed head |
-| Project workflows / acceptance | Creation PR merged or manual `acceptance` on main | Open/update a metadata PR recording the original creation merge |
 | Project maintenance / generation | Main push, open PR events, or manual run on main | Synchronize the form and CODEOWNERS when needed |
 | Project maintenance / registry | Main push or manual main run without a PR number | Validate accepted records, check SC team access and upload `registry-catalogues` exports |
 
@@ -141,25 +140,35 @@ Private/inaccessible repositories may be impossible to verify and are flagged
 for human review rather than assumed not to exist. Username syntax is checked;
 reviewers must confirm contributor identities and accounts.
 
-### Acceptance
+### Submission date and acceptance
 
-Merging a creation PR closes its linked submission Issue. It also triggers a
-separate review PR adding:
+The initial project PR includes GitHub's original Issue creation timestamp:
 
 ```yaml
-acceptance:
-  accepted_at: '2026-10-11T12:34:56Z'
-  pull_request: 12
-  merged_by: aguinot
+submission:
+  issue_number: 12
+  submitted_by: alice
+  submitted_at: '2026-10-11T06:00:00Z'
+  # Workflow-generated body/title digests are also stored here.
 ```
 
-Review and merge that metadata PR to store acceptance in the project YAML. The
-timestamp is GitHub's original creation-PR merge time, not the later metadata
-merge time. The metadata PR preserves other current fields and cannot trigger
-another acceptance PR. Retry/backfill using **Project workflows → Run workflow**
-on `main`, operation `acceptance`, with the original creation PR number.
-Directly committed project additions have no creation-PR merge timestamp; this
-acceptance mechanism applies to PR-created projects.
+The date is generated from the authenticated GitHub API response; submitters
+neither enter it nor supply it in an Issue answer. It stays unchanged when the
+Issue is corrected or the workflow is retried, and appears in the formatted PR
+summary. This is the proposal submission date, not its later acceptance date.
+
+Merging the project PR accepts the project and closes its linked Issue. There
+is no follow-up acceptance-metadata PR and no automatic project rewrite after
+merge. The acceptance time remains visible in the original PR's merge history.
+The submitted branch may be deleted after merging.
+
+Issue submission metadata requires the original submission date and both
+body/title digests. The removed `acceptance` YAML field is no longer allowed.
+The workflow reads only `project_workflow/config.yaml`, the root
+`working_groups/` catalogues and the current Issue form with paired contributor
+fields. Earlier directory layouts and Issue formats are not supported.
+Manual SC-created projects without a submission Issue omit the `submission`
+object.
 
 ## Project records and exports
 
@@ -190,7 +199,7 @@ repeat. Lead name and username are either both set or both null. Status is
 the PR policy rejects deletion to preserve history.
 
 Optional fields include `phd_thesis`, `slack_channel`, `related_links`,
-`github_url`, and workflow-generated `submission`/`acceptance` metadata.
+`github_url`, and workflow-generated `submission` metadata.
 Issue submissions reserve `P000012` for Issue #12; manual SC creation can use
 short IDs such as `P001`. IDs and filenames must agree and must not be reused.
 Summaries support long Markdown text within the operational 1 MiB file limit.
@@ -281,9 +290,10 @@ main. Do not change tokens or loosen policy to work around a stale run.
    Check actionable feedback and no mergeable invalid PR. Correct the original
    Issue and verify recovery without a duplicate PR. Also confirm an ordinary
    member's CPP/KEY submission is rejected.
-7. Merge a valid creation PR. Confirm Issue closure and a separate acceptance
-   PR whose timestamp matches that original merge. Merge the metadata PR and
-   rerun acceptance; there should be no duplicate.
+7. Confirm the initial project YAML and PR summary contain the original Issue
+   creation time under `submission.submitted_at`. Correct the Issue and check
+   that this date stays unchanged. Merge the proposal; confirm Issue closure
+   and that no second project/metadata PR is created.
 8. Revert temporary wording/catalogue test changes through your usual commit/PR
    route. Keep accepted test project history, or use a separate test repository
    if disposable project records are needed.

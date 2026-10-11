@@ -56,14 +56,16 @@ def request_review(api, pr, ctx):
 
 def proposal_body(record, ctx, repo, issue_number, warning=None):
     group = ctx.working_groups[record["working_group"]]
-    kinds = {"EP": "Enhancing project", "CPP": "Critical path project", "KEY": "Key project"}
+    kind = record["kind"]
+    description = ctx.policy["kinds"][kind].get("description")
+    kind_label = safe_text(kind + (" — " + description if description else ""))
     lead = (safe_text(record["lead"]) + " · " + profile(record["lead_github_username"])) if record["lead"] else "Unassigned"
     body = [f"## {safe_text(record['name'])}",
             f"Submitted through [Issue #{issue_number}](https://github.com/{repo}/issues/{issue_number}).",
             f"Closes #{issue_number}",
             "| Field | Value |", "| --- | --- |",
             f"| Project ID | {record['project_id']} |",
-            f"| Kind | {record['kind']} — {kinds.get(record['kind'], record['kind'])} |",
+            f"| Kind | {kind_label} |",
             f"| Initial status | {record['status']} |",
             f"| Working group | {record['working_group']} — {safe_text(group['description'])} |",
             f"| Project lead | {lead} |",
@@ -71,6 +73,7 @@ def proposal_body(record, ctx, repo, issue_number, warning=None):
             f"| Slack channel | {safe_text(record['slack_channel']) if record['slack_channel'] else 'Not provided'} |",
             f"| Main repository | {link(record['github_url']) if record['github_url'] else 'Not provided'} |",
             "\n### Deliverables\n"]
+    body.insert(7, f"| Submitted at (UTC) | {safe_text(record['submission']['submitted_at'])} |")
     titles = {x["id"]: x["title"] for x in group["deliverables"]}
     body.extend(f"- **{safe_text(identifier)}** — {safe_text(titles[identifier])}" for identifier in record["deliverable_ids"])
     body.append("\n### Contributors\n")
