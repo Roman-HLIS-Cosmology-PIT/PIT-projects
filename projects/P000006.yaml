@@ -1,0 +1,22 @@
+schema_version: 1
+project_id: P000006
+name: Test project
+kind: EP
+status: active
+lead: Axel G
+lead_github_username: aguinot
+contributors: []
+summary: Test project
+working_group: CAS
+deliverable_ids:
+- CAS-1
+phd_thesis: false
+slack_channel: null
+github_url: null
+related_links: []
+submission:
+  issue_number: 6
+  submitted_by: aguinot
+  issue_body_sha256: 3573cf53d31f34c9fd86ada5d165cde07a522f8a4ad10836965de1bf83accbc8
+  issue_title_sha256: fecbeddb7197fcbb42af9ec5af087e7c324258017a56a5db47cde9c3a8810030
+  submitted_at: '2026-10-11T09:18:08Z'
