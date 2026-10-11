@@ -136,7 +136,6 @@ body:
   attributes:
     label: Contributor 1 GitHub username
     placeholder: janesmith
-    description: GitHub username without @. Fill both boxes or leave both blank.
   validations:
     required: false
 - type: markdown
@@ -154,7 +153,6 @@ body:
   attributes:
     label: Contributor 2 GitHub username
     placeholder: janesmith
-    description: GitHub username without @. Fill both boxes or leave both blank.
   validations:
     required: false
 - type: markdown
@@ -172,7 +170,6 @@ body:
   attributes:
     label: Contributor 3 GitHub username
     placeholder: janesmith
-    description: GitHub username without @. Fill both boxes or leave both blank.
   validations:
     required: false
 - type: markdown
@@ -190,7 +187,6 @@ body:
   attributes:
     label: Contributor 4 GitHub username
     placeholder: janesmith
-    description: GitHub username without @. Fill both boxes or leave both blank.
   validations:
     required: false
 - type: markdown
@@ -208,6 +204,5 @@ body:
   attributes:
     label: Contributor 5 GitHub username
     placeholder: janesmith
-    description: GitHub username without @. Fill both boxes or leave both blank.
   validations:
     required: false
