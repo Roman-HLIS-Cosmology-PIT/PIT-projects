@@ -41,8 +41,8 @@ body:
   attributes:
     label: Working group
     options:
-    - CAS — CAS working group
-    - CPIP — CPIP working group
+    - CAS — Catalogue And Statistics
+    - CPIP — Cosmological Parameter Inference Pipeline
     - SCM — Shape and Color Measurement
   validations:
     required: true
