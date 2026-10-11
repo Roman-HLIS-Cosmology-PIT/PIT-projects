@@ -17,9 +17,9 @@ body:
     label: Project kind
     default: 0
     options:
-    - EP
-    - CPP
-    - KEY
+    - EP - Enhancing Project
+    - CPP - Critical Path Project
+    - KEY - Key Project
   validations:
     required: true
 - type: input
