@@ -92,6 +92,11 @@ def group_options(ctx):
     return {f"{code} — {' '.join(g['description'].split())}": code for code, g in sorted(ctx.working_groups.items())}
 
 
+def kind_options(ctx):
+    return [f"{code} - {' '.join(rules['description'].split())}" if "description" in rules else code
+            for code, rules in ctx.policy["kinds"].items()]
+
+
 def deliverable_choices(ctx):
     result = {}
     for code, group in sorted(ctx.working_groups.items()):
@@ -172,7 +177,7 @@ def form(ctx):
         raise Invalid("Set the form section in project_workflow/config.yaml before generating the form")
     label_keys(ctx)
     spec = deepcopy(ctx.form_source)
-    choices = {"project_kinds": list(ctx.policy["kinds"]),
+    choices = {"project_kinds": kind_options(ctx),
                "working_groups": list(group_options(ctx)),
                "deliverables": deliverable_options(ctx)}
     bindings = {"kind": "project_kinds", "working_group": "working_groups", "deliverable_ids": "deliverables"}
@@ -196,7 +201,7 @@ def generated_text(ctx, *, legacy=False):
 
 def option_value(value):
     """Read the stable code/ID before an optional display description."""
-    return value.split("—", 1)[0].strip()
+    return value.split("—", 1)[0].split(" - ", 1)[0].strip()
 
 
 def deliverable_value(value, working_group):
@@ -265,7 +270,7 @@ def validate_form(text, ctx):
                 valid = identifier in ctx.deliverables.get(group, set()) if group else any(identifier in ids for ids in ctx.deliverables.values())
                 if not valid:
                     raise Invalid(f"Unknown deliverable option: {value}")
-            if key == "kind" and value not in ctx.policy["kinds"]:
+            if key == "kind" and option_value(value) not in ctx.policy["kinds"]:
                 raise Invalid(f"Unknown project-kind option: {value}")
             booleans = {"Yes", "No"} if "name" in fields else {"True", "False"}
             if key == "phd_thesis" and value not in booleans:

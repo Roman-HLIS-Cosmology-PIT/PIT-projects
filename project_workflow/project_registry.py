@@ -128,11 +128,14 @@ def _load_legacy_context(read_text: Callable[[str], str], *, paths: Iterable[str
         raise Invalid("Initial project status must satisfy its schema constraints")
     if not isinstance(policy["kinds"], dict) or set(policy["kinds"]) != set(props["kind"]["enum"]):
         raise Invalid("Schema kinds and policy kinds must agree")
+    rule_keys = {"member_can_create", "member_can_claim", "allow_unassigned"}
     for rules in policy["kinds"].values():
-        if not isinstance(rules, dict) or set(rules) != {"member_can_create", "member_can_claim", "allow_unassigned"}:
-            raise Invalid("Every kind requires creation, claim and unassigned rules")
-        if any(type(value) is not bool for value in rules.values()):
+        if not isinstance(rules, dict) or not rule_keys <= set(rules) or set(rules) - rule_keys - {"description"}:
+            raise Invalid("Every kind requires creation, claim and unassigned rules; description is optional")
+        if any(type(rules[key]) is not bool for key in rule_keys):
             raise Invalid("Kind policy values must be booleans")
+        if "description" in rules and (not isinstance(rules["description"], str) or not rules["description"].strip()):
+            raise Invalid("Project-kind description must be nonempty text")
         if rules["member_can_claim"] and not rules["allow_unassigned"]:
             raise Invalid("A claimable kind must allow an unassigned lead")
     for label in ("lead_editable_fields", "contributor_editable_fields"):

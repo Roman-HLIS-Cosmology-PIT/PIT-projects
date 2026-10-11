@@ -1,5 +1,5 @@
 working_group: CPIP
-description: CPIP working group
+description: Cosmological Parameter Inference Pipeline
 deliverables:
   - id: CPI-1
     title: 3x2pt and cluster cosmology

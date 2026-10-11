@@ -181,7 +181,7 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         raise Invalid("\n".join(dict.fromkeys(errors)))
     record = {
         "schema_version": ctx.schema["properties"]["schema_version"]["const"], "project_id": project_id(issue["number"]),
-        "name": values["name"], "kind": values["kind"],
+        "name": values["name"], "kind": option_value(values["kind"]),
         "status": ctx.schema["properties"]["status"].get("default", "active"),
         "lead": optional(values["lead"]) or None,
         "lead_github_username": lead_username or None,

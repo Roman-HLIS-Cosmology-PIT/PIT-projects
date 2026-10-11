@@ -117,6 +117,38 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(proposal(changed, ctx, organization_member=True, is_sc=False)["summary"], "Science description.")
         self.assertNotIn("aliases", next(f for f in form(ctx)["body"] if f.get("id") == "summary"))
 
+    def test_descriptive_kind_options_keep_stable_codes_and_permissions(self):
+        self.api.source("config/policy.yaml", lambda d: d["kinds"]["EP"].update(description="Enhancing Project"))
+        self.api.source("config/policy.yaml", lambda d: d["kinds"]["CPP"].update(description="Critical Path Project"))
+        self.run_sync()
+        head = self.api.data[self.api.pr["head"]["sha"]]
+        ctx = load_context(head.__getitem__, paths=head)
+        options = next(f for f in form(ctx)["body"] if f.get("id") == "kind")["attributes"]["options"]
+        self.assertIn("EP - Enhancing Project", options)
+        self.assertIn("CPP - Critical Path Project", options)
+        self.assertIn("KEY", options)
+        self.assertEqual(ctx.schema["properties"]["kind"]["enum"], ["EP", "CPP", "KEY"])
+        for label in ("EP", "EP - Enhancing Project", "EP — Previous wording"):
+            issue = current_issue()
+            issue["body"] = issue["body"].replace("### Project kind\n\nEP", "### Project kind\n\n" + label)
+            self.assertEqual(proposal(issue, ctx, organization_member=True, is_sc=False)["kind"], "EP")
+        issue = current_issue()
+        issue["body"] = issue["body"].replace("### Project kind\n\nEP", "### Project kind\n\nCPP - Critical Path Project")
+        with self.assertRaises(Invalid):
+            proposal(issue, ctx, organization_member=True, is_sc=False)
+
+    def test_kind_description_does_not_relax_policy_validation(self):
+        for edit in (lambda rules: rules.update(description=False),
+                     lambda rules: rules.update(description=" "),
+                     lambda rules: rules.update(member_can_create="true", description="Enhancing Project"),
+                     lambda rules: rules.update(extra_permission=True, description="Enhancing Project")):
+            data = deepcopy(self.api.head)
+            config = yaml.safe_load(data[CONFIG_PATH])
+            edit(config["policy"]["kinds"]["EP"])
+            data[CONFIG_PATH] = yaml.safe_dump(config, sort_keys=False)
+            with self.assertRaises(Invalid):
+                load_context(data.__getitem__, paths=data)
+
     def test_extra_contributor_pair_needs_only_form_source_edit(self):
         def add_slot(data):
             for suffix, label in (("name", "Contributor 6 name"), ("github_username", "Contributor 6 GitHub username")):
