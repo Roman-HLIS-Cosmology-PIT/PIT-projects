@@ -5,14 +5,17 @@ reviewers:
 policy:
   kinds:
     EP:
+      description: Enhancing Project
       member_can_create: true
       member_can_claim: false
       allow_unassigned: false
     CPP:
+      description: Critical Path Project
       member_can_create: false
       member_can_claim: true
       allow_unassigned: true
     KEY:
+      description: Key Project
       member_can_create: false
       member_can_claim: false
       allow_unassigned: true
