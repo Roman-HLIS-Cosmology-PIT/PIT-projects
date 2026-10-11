@@ -9,7 +9,8 @@ them. The same repository will host its Wiki in a later step.
 
 Start with [submission setup and testing](docs/project-submissions.md), alongside
 [repository permissions and branch protection](docs/setup-and-test.md). The SC
-roster is maintained only in GitHub through the team named in CODEOWNERS.
+roster is maintained only in GitHub through the team identified in `config/access.yaml`.
+During testing, `.github/CODEOWNERS` requests review only from `aguinot`.
 
 All Issues, project records, reviews and logs are visible to repository readers.
 Include only collaboration-appropriate content. No email field is collected.
@@ -20,20 +21,34 @@ Include only collaboration-appropriate content. No email field is collected.
 | --- | --- | --- |
 | **New project submission** (`new-project.yml`) | A labelled New Project Issue is created/edited/reopened/closed or labelled/unlabelled; manual retry on main | Verify the actual Issue author's membership and project policy; comment on errors; create/update one YAML proposal PR |
 | **Project review** (`project-policy.yml`) | PR events targeting main; explicit dispatch for automated PRs | Validate data using trusted-base code; publish required **Project policy** status on the actual PR head |
+| **Record project acceptance** (`project-accepted.yml`) | Creation PR merged into main; manual backfill/retry | Open one metadata PR storing the original merge timestamp, creation PR number and merger; never push main or auto-merge |
 | **Registry health** (`registry-health.yml`) | Push to main or manual run | Validate accepted records, catalogue/form consistency, live SC team access, regression tests and machine-readable exports |
 
 ### Submission and correction
 
-The form collects project title/kind, lead name/username, contributor pairs,
-working group and deliverables, PhD-thesis status, Slack channel, description,
-optional main repository and related links. Ordinary members create EP projects
-with themselves as lead. SC can declare CPP/KEY, including unassigned projects.
+The native Issue title is the project title; no prefix is required. The form
+collects kind, lead name/username, working group and deliverables with full
+labels, PhD-thesis status (False by default), Slack channel, description,
+optional main repository and related links. **Contributors** is the final
+section, with five optional name/username pairs in numbered subsections.
+Leave both boxes blank or complete both. The stored contributor list has no
+five-person limit; an SC PR can add more later (member update intake is future work).
+Ordinary members create EP projects with themselves as lead. SC can declare
+CPP/KEY, including unassigned projects.
 
-After submission, one automation comment gives corrections or links the PR.
-To correct an answer, select **⋯ → Edit** on the original Issue description,
-keep the field headings and save. Validation reruns and updates the same PR.
-Invalid edits block its policy status. SC approval remains required; merging
-closes the Issue. The workflow never approves or merges a PR.
+After Actions starts, an acknowledgment comment confirms receipt. A separate
+feedback comment reports validation errors or links the PR. Correct the Issue
+title or select **⋯ → Edit** on the original description, keep the field headings,
+and save. Validation reruns, updates the formatted PR summary and reuses the
+same PR. Invalid edits block its policy status. During testing, required Code
+Owner review is from `aguinot`. Merging the creation PR closes the Issue.
+The workflow never approves or merges a PR.
+
+The merge then starts **Record project acceptance**, which opens a separate
+review PR adding an optional `acceptance` object to the project YAML. Review
+and merge that PR to retain the original acceptance time in the registry. The
+metadata PR does not change project content and cannot create another metadata
+PR. Earlier creation PRs can be backfilled with a manual run on `main`.
 
 Working-group/dropdown choices are generated from `working_groups/`. After
 changing a catalogue, run `python -m scripts.issue_form` and include the updated
@@ -52,7 +67,9 @@ The policy workflow checks out trusted base code and reads proposed Git blobs
 as data. It never executes proposed scripts, tests, dependencies or workflows.
 For an automated proposal it rechecks the live Issue and original author;
 for a direct PR it rechecks the SC author. A passing check validates the data
-and permissions; SC reviewers assess scientific content and acceptance.
+and permissions; the configured Code Owners assess scientific content and acceptance.
+Acceptance metadata PRs are checked against GitHub’s actual original merge,
+with every other project field required to match the current accepted record.
 
 Protect main with required **Project policy** status and Code Owner approval,
 dismissed stale reviews, up-to-date branches and no bypass. The workflow job
@@ -62,7 +79,7 @@ dismissed stale reviews, up-to-date branches and no bypass. The workflow job
 
 The existing **SC_TEAM_READ_TOKEN** supplies organization Members Read access
 for membership lookups. It is used only with organization API endpoints.
-The submission workflow's built-in token writes its branch/PR/feedback/status
+The submission and acceptance workflows' built-in tokens write their branches/PRs/statuses (submission also writes Issue feedback)
 and dispatches independent validation. The policy token reads repository data
 and writes only commit statuses. Registry health has repository read access.
 No external backend, email verification, fork or additional sign-in is used.
@@ -96,7 +113,8 @@ next unused short manual ID (`P001`, `P002`, etc.). Issue submissions reserve ze
 | `phd_thesis` | Boolean | Required for Issue submissions; optional in older records |
 | `slack_channel` | Channel name or `null` | Optional |
 | `related_links` | List of HTTPS URLs | Optional; no embedded credentials |
-| `submission` | Generated Issue number, submitting login and body digest | Administrative provenance; verified against the live Issue during proposal review |
+| `submission` | Generated Issue number, submitting login, body digest and optional title digest | Administrative provenance; verified against the live Issue during proposal review |
+| `acceptance` | Original `accepted_at` UTC timestamp, creation `pull_request` number and `merged_by` username | Added after acceptance through a verified metadata PR; members cannot edit it |
 
 Names are human-readable labels and may contain spaces and accented characters.
 GitHub usernames are separate, **without `@`**, and are used for authorization
@@ -239,8 +257,10 @@ Issue. Accepted history and review decisions remain in Git and the associated PR
     new-project.yml            # Verified Issue-to-PR submission
     project-policy.yml         # Trusted-base validation and head status
     registry-health.yml        # Validation/tests after merging into main
+    project-accepted.yml       # Original merge metadata through a review PR
 config/
   policy.yaml                  # Creation/claim rules and editable fields
+  access.yaml                  # SC authorization team, separate from review routing
 working_groups/
   SCM.yaml                     # Group code, description and deliverables
   CAS.yaml
@@ -248,7 +268,8 @@ working_groups/
 schema/
   project.schema.json          # Fields, types, choices, required fields
 projects/
-  .gitkeep                    # No projects registered initially
+  .gitkeep
+  P000001.yaml                 # Existing records are preserved by this update
 templates/
   project.yaml
   unassigned-cpp.yaml
@@ -258,12 +279,15 @@ scripts/
   issue_form.py                # Generate form from catalogue
   submission.py                # Parse/validate Issue answers
   issue_intake.py              # Verify author and create/update proposal
+  review.py                    # Human-readable PR summaries and review requests
+  acceptance.py                # Original merge metadata through a review PR
 tests/
   test_registry.py
   test_github_adapter.py
   test_team_directory.py
   test_working_groups.py
   test_issue_submission.py
+  test_submission_updates.py
 docs/
   setup-and-test.md
   project-submissions.md
@@ -344,14 +368,16 @@ Never commit its value.
 
 SC authority comes from a **live lookup** of active GitHub team membership
 for the GitHub API's PR author, or the original Issue author for bot proposals. The identifier is read from the **base**
-CODEOWNERS rule, not the proposed rule. Event senders, rerun actors, PR bodies
+`config/access.yaml`, not the proposed access configuration. Event senders, rerun actors, PR bodies
 and YAML fields cannot establish SC identity or self-authorize a PR.
 
-The same single CODEOWNERS reference drives native GitHub review and the live
-team check. Add/remove people in the existing GitHub team; no repository edits
-are needed. Membership is checked on each run and again at its end. Later
-membership edits do not retroactively revoke completed checks; rerun open PR
-checks after team changes.
+`config/access.yaml` identifies the existing SC team. Add/remove people only
+in that GitHub team; no stored membership list is used. `.github/CODEOWNERS`
+independently routes reviews, currently only to `aguinot` during testing.
+Restore the team as Code Owner when testing finishes; the membership credential
+and authorization checks stay the same. Membership is checked on each run
+and again at its end. Later membership edits do not retroactively revoke
+completed checks; rerun open PR checks after team changes.
 
 For infrastructure/code PRs, run the proposed tests locally and review the
 changes before merging: this PR workflow runs the **base** regression tests,

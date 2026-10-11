@@ -19,19 +19,28 @@ from scripts.submission import (
     number, project_path, project_yaml, proposal, submission_branch,
 )
 from scripts.validate_pr import GitHub, NoRedirect, TeamDirectory, records
+from scripts.review import proposal_body, request_review, safe_text
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
+ACK_MARKER = "<!-- pit-project-submission-received:v1 -->"
 
 
-def feedback(api, issue_number, message):
-    body = COMMENT_MARKER + "\n" + message
+def feedback(api, issue_number, message, *, marker=COMMENT_MARKER):
+    body = marker + "\n" + message
     previous = [c for c in api.pages(f"issues/{issue_number}/comments")
-                if is_submission_bot(c["user"]) and c.get("body", "").startswith(COMMENT_MARKER)]
+                if is_submission_bot(c["user"]) and c.get("body", "").startswith(marker)]
     if previous:
         if previous[0]["body"] != body:
             api.request("PATCH", f"issues/comments/{previous[0]['id']}", {"body": body})
     else:
         api.request("POST", f"issues/{issue_number}/comments", {"body": body})
+
+
+def acknowledge(api, issue):
+    if issue.get("state") == "open" and labelled(issue) and not issue.get("pull_request"):
+        feedback(api, issue["number"], "**Your project proposal has been submitted and is awaiting validation.** "
+                 "Another message will confirm whether it is valid or explain any corrections needed. "
+                 "Validation is not project acceptance.", marker=ACK_MARKER)
 
 
 def associated_pr(api, issue_number):
@@ -94,6 +103,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
     pr = associated_pr(api, issue_number)
     if pr and pr.get("merged_at"):
         return "already-merged"
+    acknowledge(api, issue)
     if pr and pr["state"] == "closed":
         feedback(api, issue_number, "**The previous proposal PR was closed without merging.** Ask SC to reopen that PR before continuing. No duplicate PR was created.")
         return "closed-pr"
@@ -106,8 +116,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         ctx = load_context(base_read, paths=base_tree)
         form_path = ".github/ISSUE_TEMPLATE/new-project.yml"
         if form_path in base_tree:
-            from scripts.issue_form import generated_text
-            if base_read(form_path) != generated_text(ctx):
+            from scripts.issue_form import matches_form
+            if not matches_form(base_read(form_path), ctx):
                 raise Invalid("SC must regenerate the Issue Form to match the working-group catalogue")
         records(base_tree, base_read, ctx)
         member, sc = authenticate(issue, ctx, teams, api.repo)
@@ -160,25 +170,21 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
                 api.request("PATCH", f"git/refs/heads/{branch}", {"sha": head_sha, "force": True})
             else:
                 api.request("POST", "git/refs", {"ref": "refs/heads/" + branch, "sha": head_sha})
-        body = (f"Project proposal from Issue #{issue_number}.\n\n"
-                "The policy check verifies the original Issue author and the current Issue answers. "
-                "Review the generated YAML and scientific content before accepting.\n\n"
-                f"Closes #{issue_number}\n")
-        if warning:
-            body += "\n**Repository lookup:** " + warning + "\n"
+        body = proposal_body(record, ctx, api.repo, issue_number, warning)
         title = ("New project: " + record["name"])[:256]
         if pr:
             pr = api.request("PATCH", f"pulls/{pr['number']}", {"title": title, "body": body})
         else:
             pr = api.request("POST", "pulls", {"title": title,
                 "head": branch, "base": "main", "body": body})
+        request_review(api, pr, ctx)
         # GITHUB_TOKEN-created PRs do not reliably start pull_request_target.
         # Explicit dispatch runs trusted main code and publishes a status on
         # the actual PR head (not on the workflow's main-branch commit).
         api.request("POST", "actions/workflows/project-policy.yml/dispatches",
                     {"ref": "main", "inputs": {"pr_number": str(pr["number"])}})
         message = f"**Proposal validated.** Review PR: https://github.com/{api.repo}/pull/{pr['number']}\n\n"
-        message += "SC approval is still required. To correct the proposal, edit this Issue's description and save; the same PR will be updated."
+        message += "Review by the configured Code Owner is still required. To correct the proposal, edit this Issue's title or description and save; the same PR will be updated."
         if warning:
             message += "\n\n**Note:** " + warning
         feedback(api, issue_number, message)
@@ -187,8 +193,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         if pr:
             current = api.get(f"pulls/{pr['number']}")
             api.status(current["head"]["sha"], "failure", "Correct the submission Issue before this PR can be merged")
-        message = "**Your proposal needs correction.**\n\n" + "\n".join("- " + line for line in str(exc).splitlines())
-        message += "\n\nOn the original Issue description, select **⋯ → Edit**, correct the answers beneath the headings, and **Save**. Validation will run automatically. A separate comment does not change the proposal."
+        message = "**Your proposal needs correction.**\n\n" + "\n".join("- " + line for line in safe_text(str(exc), markdown=True).splitlines())
+        message += "\n\nOn the original Issue description, select **⋯ → Edit**, correct the title or answers beneath the headings, and **Save**. Validation will run automatically. A separate comment does not change the proposal."
         feedback(api, issue_number, message)
         return "invalid"
 
@@ -205,6 +211,7 @@ def main():
         checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         if checkout != api.get("git/ref/heads/main")["object"]["sha"]:
             raise Invalid("Submission code must run from current main; rerun this workflow")
+        acknowledge(api, api.get(f"issues/{issue_number}"))
         # Construct the membership client after marking an existing PR pending
         # so missing credentials cannot leave a stale successful status behind.
         teams = TeamDirectory(os.environ.get("SC_TEAM_READ_TOKEN", "")) if os.environ.get("SC_TEAM_READ_TOKEN") else None

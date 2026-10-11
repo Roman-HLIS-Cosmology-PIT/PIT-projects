@@ -23,6 +23,7 @@ def source_data():
                 data[file.relative_to(ROOT).as_posix()] = file.read_text()
     # Tests use a synthetic team, never a stored production membership roster.
     data[".github/CODEOWNERS"] = "* @test-org/steering-committee\n"
+    data["config/access.yaml"] = "steering_committee: test-org/steering-committee\n"
     # Fixtures use the new format even while the production layout is migrating.
     schema = json.loads(data["schema/project.schema.json"])
     schema["properties"]["working_group"].pop("enum", None)
@@ -311,14 +312,19 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(Invalid):
             load_context(self.data.__getitem__, paths=self.data)
 
-    def test_codeowners_requires_one_team_not_individual_usernames(self):
-        self.data[".github/CODEOWNERS"] = "* @alice\n"
+    def test_review_owner_can_differ_from_authorization_team(self):
+        self.data[".github/CODEOWNERS"] = "* @aguinot\n"
+        ctx = load_context(self.data.__getitem__, paths=self.data)
+        self.assertEqual(ctx.review_owners, ("@aguinot",))
+        self.assertEqual(ctx.sc_team, ("test-org", "steering-committee"))
+        del self.data["config/access.yaml"]
         with self.assertRaises(Invalid):
             load_context(self.data.__getitem__, paths=self.data)
 
     def test_proposed_sc_team_cannot_grant_requester_permission(self):
         proposed = deepcopy(self.data)
         proposed[".github/CODEOWNERS"] = "* @test-org/mallory-team\n"
+        proposed["config/access.yaml"] = "steering_committee: test-org/mallory-team\n"
         with self.assertRaises(Invalid):
             validate_snapshot(snapshot(self.data), snapshot(proposed), self.data.__getitem__, proposed.__getitem__, "mallory", sc_lookup=is_test_sc)
 

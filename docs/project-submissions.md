@@ -1,165 +1,209 @@
 # Submit a new project through an Issue
 
-Organization members need only **Read** repository access. They create a
-New Project Issue; GitHub Actions verifies the actual author and prepares a
-project YAML PR. SC reviews and merges it. There is no email field, fork,
-external service, or additional sign-in system. Wiki publication remains a
-later step.
+Organization members need only **Read** repository access. GitHub verifies the
+actual Issue author and prepares a project YAML PR. During testing, review is
+requested only from **aguinot**. SC authorization still comes from the existing
+GitHub team. There is no email field, fork, backend or additional sign-in.
 
-## Installation by a repository administrator
+When upgrading the existing repository, first follow
+[the staged update and notification instructions](review-and-acceptance-update.md).
+No accepted project or deliverable catalogue is overwritten by that update.
 
-1. Copy the update files into your repository, preserving their paths. Publish
-   and review this change yourself using the existing SC PR process. The old
-   trusted-base validator can validate this installation PR; no project record
-   is created by installing the files.
-2. Keep ordinary members at **Read** and SC at the existing repository role.
-   In **Settings → General → Features**, ensure **Issues** is enabled.
-3. In **Issues → Labels**, create the label **`new-project`** before using the
-   form. Description: `New project proposal submitted through the Issue Form`.
-   The exact label name matters. Read members do not need permission to apply
-   labels manually; the form applies this configured label automatically.
-4. Keep the existing **SC_TEAM_READ_TOKEN** Actions secret. Its organization
-   **Members: Read** permission supports both SC-team lookups and organization
-   membership lookups. The token's owner must be able to read membership in
-   Roman-HLIS-Cosmology-PIT. No membership roster is stored in this repository.
-   Token expiration, missing credentials and API failures block validation.
-5. In **Settings → Actions → General → Workflow permissions**, enable
-   **Allow GitHub Actions to create and approve pull requests**. This GitHub
-   checkbox is required for PR creation; these workflows never approve or
-   merge PRs. The default workflow permissions can remain read-only: each
-   supplied workflow requests its own scoped permissions explicitly. If the
-   organization disables this setting, an organization administrator must
-   allow it.
-6. Protect `main` with required SC Code Owner review, dismissed stale
-   approvals after new pushes, up-to-date branches, and no bypass. Require
-   the **Project policy** status produced by GitHub Actions. Do **not** require
-   the workflow job named `Validate project policy`: a manual dispatch runs
-   on main, while the script publishes `Project policy` on the actual PR head.
-   After your first test submission, confirm this status is selectable in
-   the rule. Remove any duplicate/obsolete required check entries.
-7. Run **Registry health** on `main` and complete the tests below before
-   announcing the form.
+## Administrator setup
 
-## Direct link and future website button
+1. Enable Issues and Actions. Keep ordinary members at Read.
+2. Create the **new-project** label if missing. The form applies it automatically;
+   the title does not identify the workflow. Removing `[New project]` is safe.
+3. Keep the existing **SC_TEAM_READ_TOKEN** secret, with organization **Members:
+   Read** permission and visibility of the organization/team. Never commit it.
+4. Enable **Allow GitHub Actions to create and approve pull requests** at the
+   repository and, if required, organization level. Keep default token permissions
+   read-only. Individual supplied workflows request the permissions they need;
+   none contains an approval or merge operation. Consider the other repositories
+   affected before changing organization settings.
+5. Protect main with required PR and Code Owner approval, dismissed stale reviews,
+   up-to-date branches, and no bypass. Require the **Project policy** commit status
+   from GitHub Actions, not the separate `Validate project policy` workflow job.
+6. Run Registry health on main and complete the live tests below.
 
-After installation on `main`, use:
+Authorization configuration:
 
-https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-project.yml
-
-For a future GitHub Pages page:
-
-```html
-<a href="https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-project.yml">
-  Submit a project
-</a>
+```yaml
+# config/access.yaml
+steering_committee: Roman-HLIS-Cosmology-PIT/steering-committee
 ```
 
-For a private repository, the visitor must sign in to GitHub with an account
-that already has repository access. Publishing this link does not grant that
-access or publish Issue contents. These files do not create or deploy a website.
+Test review routing:
 
-## What submitters do
+```text
+# .github/CODEOWNERS
+* @aguinot
+```
 
-1. Open the link and fill out the New Project form.
-2. Select one working group and one or more deliverables from that group.
-   Dropdowns are static; the workflow checks the pairing after submission.
-3. Enter each contributor as `Name | github_username`, one per line. Do not
-   repeat the lead. Use usernames without `@`; contributors can be left blank.
-4. Ordinary members select EP and enter themselves as lead. SC can also select
-   CPP or KEY and leave both lead fields and contributors blank.
-5. Answer Yes/No for PhD-thesis status and describe the science. Slack channel,
-   the main GitHub repository and related HTTPS links are optional. No email
-   or private contact information is requested.
-6. Submit and wait for the automation's comment. Actions can take time to
-   start; validation is asynchronous, not a live check in the form.
+Both files require administrative review. Changing reviewers does not change who
+can declare CPP/KEY projects. GitHub maintains the only SC membership roster.
 
-GitHub converts the answers into a Markdown Issue description. To correct an
-error, use **⋯ → Edit** on that original description, change the answers beneath
-the field headings, and **Save**. Keep every field heading, including optional
-fields. An empty optional field or `_No response_` means no value. Use `Yes`
-or `No` for PhD status. Deliverables may be comma-separated `SCM / SCM-1`
-selections, or bare IDs such as `SCM-1, SCM-3` for the selected group.
-A correction in a separate comment does not update the proposal.
+## Direct form link
 
-The automation maintains one feedback comment. It reports specific correction
-instructions or the PR link. A successful edit updates the same PR. Invalid
-edits, closing the submission or removing its label fail the existing PR's
-policy status. No invalid edit overwrites the last valid YAML.
+[Submit a project](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-project.yml)
 
-Required-field checks are enforced by the workflow regardless of repository
-visibility. GitHub currently documents its native required-field enforcement
-as applying only to public repositories.
+The same URL can be used by a future GitHub Pages button. This update does not
+create a website or alter repository visibility. A private repository still
+requires access through the visitor's GitHub account.
 
-## PR identity, review and duplicate prevention
+## Filling and correcting the form
 
-Issue #12 gets `projects/P000012.yaml` on `project-submissions/issue-12`.
-Reserve these zero-padded, six-or-more-digit IDs for Issue submissions; SC can
-continue using the existing shorter manual IDs. A collision with an accepted
-record fails instead of overwriting it. The ID stays unchanged on edits.
+- Use the native **Add a title** box as the project title. There is no separate
+  project-title field or required prefix. A title edit revalidates the proposal.
+- Ordinary members choose EP and enter themselves as lead. SC can also declare
+  CPP or KEY and leave both lead fields blank for an unassigned project. The
+  lead-name guidance reads **Required for EP.**
+- Choose a working group and deliverables. Choices include catalogue descriptions
+  and deliverable titles. Dropdowns do not cascade: the workflow checks pairing.
+- PhD-thesis status offers **False / True**, with **False** preselected.
+- Slack channel, the main GitHub repository and related HTTPS links are optional.
+- The last section, **Contributors**, contains **Contributor 1** through
+  **Contributor 5** subsections. Each has separate name and GitHub username boxes.
+  Fill both boxes or leave both blank. Names may contain spaces; usernames must
+  not contain @. Do not repeat the lead or a contributor account.
 
-The PR's author is GitHub Actions; authorization comes from the actual Issue
-author read through GitHub's API, never the PR body or submitted usernames.
-The independent policy validator rechecks active organization/SC membership,
-reconstructs the proposal from the current Issue, and compares it with the
-proposed YAML. Only that Issue's one new project file may differ from main.
-Other project files, configuration, scripts, workflows, symlinks and submodules
-cannot be added or changed through the submission adapter.
+The initial form has five contributor slots; the stored list is expandable.
+Additional contributors can currently be added through an SC-authored project
+update PR. A Read-member update/claim intake remains future work.
 
-The `submission` metadata stores the Issue number, the submitting GitHub login,
-and a SHA-256 digest of the submitted Issue body. This is provenance, not proof
-of identity by itself. The validator verifies the live Issue separately.
-Accepted old records remain valid without these new optional metadata fields.
+GitHub displays the controls vertically, with Markdown headings for the section
+and subsections; it has no side-by-side layout or add-another-contributor button.
 
-Runs for the same Issue are serialized. Repeated events reuse the branch/PR,
-including a branch left behind by an interrupted run. Merged proposals cannot
-create a second PR. If SC closes a PR without merging, later edits do not
-create a replacement: SC must explicitly reopen that PR or decide how to
-handle the proposal. Before deleting a rejected submission branch, decide
-whether that proposal should remain editable.
+After Actions starts, an acknowledgment comment confirms submission. A separate
+feedback comment gives corrections or the proposal PR link. Actions can queue,
+so these comments are asynchronous. Receipt and validation are not acceptance.
+The acknowledgment is posted once; the latest validation feedback is updated
+on reruns rather than duplicated.
 
-SC reviewers should edit the **Issue** to change proposal information. Direct
-edits to generated YAML must match the Issue or the policy check fails. New
-commits dismiss previous approvals when branch protection is configured as
-above. The PR includes `Closes #12`; merging into `main` closes the Issue.
+To correct an error, edit the Issue title or choose **⋯ → Edit** on its original
+body, change answers beneath the existing headings, and **Save**. GitHub edits
+the submitted Markdown, not the original dropdown form. Keep all numbered
+contributor headings, including unused slots. Empty optional values and
+`_No response_` mean no value. Use `False` or `True` for the new form. Working-group codes and bare deliverable IDs such as `SCM-1, SCM-3` are also accepted
+when correcting Markdown. A separate comment does not change the proposal.
 
-If main advances, run **New project submission → Run workflow**, choose `main`
-and enter the Issue number. This rebuilds its branch from current main. Avoid
-GitHub's **Update branch** merge button for these generated branches: their
-one-parent history is maintained by the submission workflow. Ordinary authors
-can also edit/save their Issue to regenerate it. Rerun open proposal checks
-after organization or SC membership changes; membership changes do not
-retroactively invalidate already completed GitHub statuses.
+Earlier Issues created with the old form remain supported: they retain their
+Project title body field, contributor list and Yes/No answers. Do not mix old
+and new fields in one Issue. Existing accepted records are not regenerated from
+closed Issues, even if someone edits those Issues later.
 
-## Repository URL checks
+Invalid edits, closing an unmerged submission Issue or removing its label fail
+an existing PR's policy status; they do not overwrite the last valid YAML.
+Missing required fields are checked by the workflow in private and public repos.
 
-An optional main-repository URL must be a root HTTPS GitHub repository URL,
-not a branch/file URL. The workflow anonymously requests public GitHub
-repository metadata. A successful response verifies accessibility. A 404 can
-mean either a missing repository or an inaccessible private repository; it is
-shown as a warning in both the PR and Issue for SC review. Lookup outages and
-rate limits are also warnings. No organization token is sent to that lookup.
-Related links are syntax-checked only; the workflow does not fetch their URLs.
+## Proposal PR and review
 
-## Extending groups and deliverables
+Issue #12 generates `projects/P000012.yaml` on `project-submissions/issue-12`.
+The ID remains stable on edits. Collisions fail instead of overwriting accepted
+projects. Shorter IDs remain available for manual SC creations.
 
-Edit/add files in `working_groups/`, then run:
+The bot-authored PR description contains the project metadata, lead, contributor
+name/username table, deliverable IDs and titles, related links and description.
+Corrections refresh this summary. User-supplied mentions and Issue-closing
+references are escaped so the generated summary does not ping others or close
+unrelated Issues. GitHub's PR-description limit can require shortening a very
+long preview; the full content remains in the YAML.
+
+The independent policy check re-reads the actual original Issue author, active
+organization/SC membership, and current answers, including the title for new
+forms. Only that Issue's single new project file may change. It must exactly
+match the reconstructed data. Editable PR descriptions and provenance do not
+establish authorization. Proposed scripts, workflows, symlinks or submodules
+cannot be executed or introduced by this adapter.
+
+The `submission` object includes the Issue number, submitting login, body digest
+and, for new forms, title digest. Membership is looked up live; the bot is not
+considered an SC member. Proposed access configuration cannot self-authorize.
+
+CODEOWNERS controls review routing. During tests, only `aguinot` is requested.
+Refreshing a generated proposal or metadata PR removes outstanding review
+requests that are no longer in CODEOWNERS. This cannot retract notifications
+already delivered or prevent ordinary notifications to repository watchers.
+
+Repeated events reuse the same branch and PR, including a branch left after an
+interrupted run. A closed, unmerged PR is not replaced; an administrator can
+reopen that same PR and retry. Edit the Issue to correct proposed data rather
+than manually editing generated YAML. Merge the approved proposal into main
+to accept the project and automatically close the Issue.
+
+If main advances, run **New project submission → Run workflow**, select main,
+and enter the Issue number, or edit/save the Issue to rebuild its branch. Avoid
+GitHub's Update branch merge button; the adapter maintains one-parent commits.
+Run a fresh Project review dispatch on main for the current PR number. Existing
+checks do not automatically revoke themselves after team membership changes;
+rerun checks for open proposals when changing membership.
+
+## Acceptance timestamp
+
+When the creation PR is merged, **Record project acceptance** opens a separate
+metadata PR, using `project-acceptances/pr-<CREATION-PR-NUMBER>`. It adds:
+
+```yaml
+acceptance:
+  accepted_at: "2026-10-11T05:30:00Z"
+  pull_request: 42
+  merged_by: aguinot
+```
+
+These are example values. `accepted_at` is GitHub's actual original merge time
+in UTC. `pull_request` identifies the creation PR; `merged_by` is its merger,
+not a list of approving reviewers. The acceptance time is not the later merge
+of the metadata PR. Absence of the field does not mean a project on main is
+unaccepted; its metadata PR may still be awaiting review.
+
+Review and merge the metadata PR to store these values in the committed YAML.
+The required Project policy check verifies the original PR is merged to main,
+its author is the genuine submission bot or an active SC member, the creation
+file matches the actual merge commit, and only exact acceptance metadata is
+added to the current accepted project. Later accepted science edits are
+preserved. Conflicting existing metadata is rejected rather than overwritten.
+Members cannot supply or edit acceptance fields.
+
+Manual SC creation PRs can also be recorded, including multiple new project
+files in one PR. Updates to existing projects do not reset acceptance dates.
+Closing without merging does not count as acceptance. Merging the metadata PR
+cannot start another metadata PR. No workflow approves, merges, or pushes main.
+
+For an earlier creation PR, or a retry after main changes, manually run
+**Record project acceptance** on main and enter the original creation PR number.
+The same metadata PR is reused. If it was closed without merging, reopen it
+before rerunning. If the manual creation author is no longer in SC, automatic
+backfill fails closed; an active SC member must inspect the historical merge
+and record the correction through a reviewed administrative PR.
+
+A direct push that creates a record has no creation-PR merge to reference;
+it cannot be automatically assigned a PR acceptance date. Use the PR process.
+
+## Catalogue changes and URL checks
+
+Working groups and deliverables remain defined in `working_groups/<CODE>.yaml`.
+Descriptions appear beside group codes; titles appear beside deliverable IDs.
+CAS/CPIP currently have placeholder descriptions in your catalogue; edit their
+`description` values when their full definitions are available. Then run:
 
 ```bash
 python -m scripts.issue_form
 ```
 
-Commit the regenerated `.github/ISSUE_TEMPLATE/new-project.yml` in the same
-SC PR. The form generator derives choices and help text from the catalogues;
-there is no separately maintained group/deliverable list. Deliverable IDs used
-by the form must contain only letters, digits, dots, underscores and hyphens.
-Titles may contain normal punctuation, including commas. A group with no
-deliverables can exist in the catalogue, but a submission must choose at least
-one deliverable. Newly added arbitrary schema fields still need an explicit
-form/parser mapping if you want to collect them through Issues.
+Publish the regenerated form with the catalogue change. New groups/deliverables
+require no hard-coded enum update. Deliverable IDs in the form use letters,
+digits, dots, underscores or hyphens. ASCII commas in titles are displayed as
+semicolons only in multi-select labels, because GitHub joins selections with
+commas; original catalogue titles are preserved in project summaries.
 
-## Local checks (no GitHub credentials or writes)
+The optional main-repository link is checked anonymously for public accessibility.
+A GitHub 404 means private/inaccessible or nonexistent, so it is a review warning,
+not a claim that the repo does not exist. Related links are syntax-checked only.
+No organization credential is sent to other repositories or submitted links.
 
-Run from your repository root with Python 3.12:
+## Local verification
+
+Use Python 3.12 from the repository root:
 
 ```bash
 python -m venv .venv
@@ -169,47 +213,54 @@ python -m scripts.project_registry validate
 python -m scripts.issue_form --check
 python -m unittest discover -s tests -v
 python -m scripts.project_registry catalog --output build/projects.json
+python -m scripts.project_registry working-groups --output build/working_groups.yaml
 ```
 
-The submission tests simulate GitHub completely: they do not create Issues,
-branches, comments, statuses or PRs in a real repository.
+Tests simulate GitHub and perform no network requests, comments or repository
+writes. Never run the live adapters locally with production credentials merely
+as a test.
 
-## Tests you run on GitHub after publishing
-
-Use appropriate test data visible to repository readers. Do not merge test
-projects unless you intend to retain them in the registry.
+## Tests after you publish on GitHub
 
 | Test | Expected result |
 | --- | --- |
-| Open an ordinary Issue with no `new-project` label | Submission job skipped; no PR |
-| Submit a valid EP using a Read member account as its lead | One bot PR; `Project policy` passes on its head; SC review required |
-| Choose SCM with a CAS deliverable, or omit a contributor username | Correction comment; no PR |
-| Edit the original description to fix those errors | Same Issue becomes valid; one PR created |
-| Save the same valid Issue again, or rerun its workflow | Same project ID/PR; no duplicate |
-| Change an existing EP proposal to KEY as an ordinary member | PR policy fails; no new PR or unauthorized YAML update |
-| Restore EP and save | Same PR gets revalidated; policy can pass again |
-| Submit unassigned CPP/KEY from an SC account | PR created with both lead fields null and an empty contributor list |
-| Try to submit from a nonmember (possible only if the test account can access the repo) | Membership rejected; no PR |
-| Use an invalid repository URL | Validation error; no PR |
-| Use a syntactically valid but inaccessible private repository URL | Warning for SC; no false claim that it does not exist |
-| Close an unmerged proposal Issue or remove its submission label | Its open PR gets a failing policy status |
-| Close the PR without merging, then edit the Issue | No duplicate PR; message asks SC to reopen the original PR |
-| Merge a real approved proposal | YAML reaches main; associated Issue closes; Registry health passes |
-| Add a working group/deliverable and regenerate the form | New choices appear after merge; validation uses the new catalogue |
+| Open an ordinary Issue without the submission label | Submission job skipped; no PR |
+| Submit EP using only the native Issue title and no prefix | Receipt comment, then validation result and one proposal PR |
+| Inspect the end of the form | Contributors section, five subsections and ten optional boxes |
+| Leave all contributor boxes blank | Empty contributor list accepted |
+| Fill only Contributor 3 name | Correction identifies Contributor 3; no PR |
+| Fill all five pairs | Five contributors retained; duplicates and lead repetition rejected |
+| Choose a deliverable from another group | Correction; no PR |
+| Leave PhD status at its default | YAML contains `phd_thesis: false` |
+| Edit title, description or contributor boxes in Issue Markdown | Same PR refreshed; summary and provenance updated |
+| Inspect Reviewers | Only aguinot (account spelled `aguinot`); no SC-team request |
+| Ordinary member selects CPP/KEY or another lead | Policy failure; no unauthorized update |
+| SC submits unassigned CPP/KEY | Both lead fields null; proposal accepted for review |
+| Rerun a valid submission | Same PR and ID; no duplicate receipt comment |
+| Merge a valid proposal | Project on main; Issue closes; one acceptance metadata PR opens |
+| Compare acceptance object with original PR | Exact original merge time, PR number and merger |
+| Rerun Record project acceptance using the original PR number | Same metadata PR |
+| Try changing science or metadata in the generated metadata PR | Project policy fails |
+| Merge the metadata PR | Acceptance object stored; no further metadata PR |
+| Close an unmerged creation PR | No acceptance metadata recorded |
+| Backfill an earlier valid creation PR | Original date recorded; current project content preserved |
+| Inspect Registry health and exports | Existing and newly accepted records validate; acceptance appears in JSON |
 
-Inspect **Actions → New project submission** and **Project review** if no
-comment/PR appears. Common causes: missing label, disabled Issues/Actions,
-expired membership token, Actions PR creation disabled, a restrictive branch
-ruleset, or main changing during a run. SC can retry either workflow manually
-on `main` with the existing Issue/PR number. A pending, missing or failing
-`Project policy` status must prevent merging.
+Use real test data only if it is appropriate for repository readers. Accepted
+records are retained: do not merge disposable projects unless you intend to
+keep them. The existing `P000001` is preserved by this update and can be backfilled.
+
+For failures, inspect New project submission, Project review, Record project
+acceptance and Registry health in Actions. Check labels, permissions, membership
+secret, branch restrictions and whether main advanced during a run. A pending,
+missing or failed Project policy status must block merging. Retry with a fresh
+manual dispatch on main and the existing Issue/PR number; do not create a duplicate.
 
 ## Official references
 
-- [Issue Form syntax and Markdown conversion](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms)
-- [Form controls and validations](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema)
-- [Editing an Issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/editing-an-issue)
-- [Organization membership API](https://docs.github.com/en/rest/orgs/members#get-organization-membership-for-a-user)
-- [Workflow-token event restrictions](https://docs.github.com/en/actions/concepts/security/github_token)
-- [Commit statuses](https://docs.github.com/en/rest/commits/statuses#create-a-commit-status)
-- [Closing Issues through PRs](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)
+- [Issue Form syntax](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms)
+- [Form controls and Markdown headings](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema)
+- [Code Owners and automatic reviews](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)
+- [Workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
+- [PR merge metadata](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
+- [GITHUB_TOKEN event restrictions](https://docs.github.com/en/actions/concepts/security/github_token)

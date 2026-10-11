@@ -4,7 +4,7 @@ New-project intake is implemented through the New Project Issue Form. See
 [setup, submission, correction and tests](project-submissions.md).
 
 The requester is the original Issue author obtained from GitHub. The workflow
-checks active organization membership and the SC team from trusted CODEOWNERS,
+checks active organization membership and the SC team from trusted `config/access.yaml`,
 then calls the existing record validator and authorization engine. Bot PRs are
 bound to one live Issue, one reserved branch, and one project file. Their entire
 proposed record must equal a reconstruction of the current Issue answers.
@@ -17,3 +17,7 @@ as old rather than treating the request as a new project. They must define their
 own stable request/PR mapping and allowed file changes. Wiki synchronization
 and Slack notifications remain separate future work. The existing submission
 flow does not automatically publish project details or contact information.
+
+Acceptance recording is implemented independently through a metadata PR. It
+verifies the original creation PR and actual merge commit, preserves current
+project content, and does not reconstruct accepted data from editable closed Issues.

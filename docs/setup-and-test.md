@@ -42,17 +42,27 @@ separately and never committed.
 Copy the ZIP's contents, including `.github/` and `.gitignore`, into your
 empty clone's root; do not nest them under another directory.
 
-Edit the single team reference in `.github/CODEOWNERS`:
+SC authorization is configured in `config/access.yaml`:
 
-```text
-* @Roman-HLIS-Cosmology-PIT/steering-committee
+```yaml
+steering_committee: Roman-HLIS-Cosmology-PIT/steering-committee
 ```
 
-Use your existing team's org/slug from its GitHub URL:
-`https://github.com/orgs/ORG/teams/TEAM-SLUG`. It must belong to this repository's
-organization, be visible for CODEOWNERS, and have explicit Write or Admin access.
-Keep one wildcard team rule for now: individual usernames/multiple rules are
-rejected so native review and authorization use the same single identifier.
+GitHub maintains its membership list. This team must belong to the repository's
+organization and be readable by the membership credential.
+
+Review routing is independent. During tests, `.github/CODEOWNERS` contains:
+
+```text
+* @aguinot
+```
+
+The account must have explicit Write or Admin access. Keep one wildcard rule.
+After testing, replace it with `* @Roman-HLIS-Cosmology-PIT/steering-committee`;
+that team must be visible and have explicit Write access for native review.
+Do not change the authorization team just to silence notifications. Follow
+[the staged update instructions](review-and-acceptance-update.md) when upgrading
+an already configured repository.
 
 **Maintain people only in the GitHub team.** There is no SC roster file.
 Active members/maintainers count; pending invitations do not. GitHub's endpoint
@@ -146,7 +156,9 @@ In Settings → Branches, protect `main` with:
 - "Do not allow bypassing the above settings", including administrators.
 - SC-only push restriction where offered, with force push/deletion disabled.
 
-Use a second SC account for approval; proposers cannot approve their own PR.
+For bot-authored proposal and metadata PRs, `aguinot` can review during testing.
+For direct human-authored configuration PRs, the author cannot approve their
+own PR: with `aguinot` as sole Code Owner, another SC member must author it.
 No merge queue is supported yet. Do not require **Registry health** on PRs,
 since it runs on `main`. Check that approval cannot bypass a failed policy check.
 
@@ -231,7 +243,7 @@ Run proposed code tests locally; the PR check executes trusted base code only.
   organization approval and team visibility to the credential's account.
 - Team 401: replace expired/revoked credentials in the Actions secret.
 - SC denied: check the PR author's membership, not the rerun actor.
-- No Code Owner review: verify explicit team Write access and visibility.
+- No Code Owner review: verify `aguinot` has explicit Write/Admin access during tests; check team visibility and explicit Write access when restoring SC routing.
 - No check: workflows must be on `main`, Actions enabled, PR targeting `main`,
   and the initial adapter using a branch in this repository.
 - PR changed during validation: rerun; the validator fails closed.

@@ -180,8 +180,8 @@ def validate_snapshot(base_tree, head_tree, base_read, head_read, author, *, sc_
     proposed_ctx = load_context(head_read, paths=head_tree)
     form_path = ".github/ISSUE_TEMPLATE/new-project.yml"
     if form_path in base_tree or form_path in head_tree:
-        from scripts.issue_form import generated_text
-        if head_read(form_path) != generated_text(proposed_ctx):
+        from scripts.issue_form import matches_form
+        if not matches_form(head_read(form_path), proposed_ctx):
             raise Invalid("Regenerate the New Project form when changing working groups/deliverables")
     old = records(base_tree, base_read, base_ctx)
     new = records(head_tree, head_read, proposed_ctx)
@@ -235,12 +235,18 @@ def main():
             raise Invalid("SC team must belong to this repository's organization")
         head_read = api.reader(head_tree)
         issue = None
+        acceptance_pr = False
         if is_submission_bot(pr["user"]):
-            issue = api.get(f"issues/{branch_issue(pr['head']['ref'])}")
-            actor = issue["user"]["login"]
-            validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
-                organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
-                is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+            from scripts.acceptance import BRANCH_PREFIX as ACCEPTANCE_PREFIX, validate_acceptance_snapshot
+            if pr["head"]["ref"].startswith(ACCEPTANCE_PREFIX):
+                acceptance_pr = True
+                validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
+            else:
+                issue = api.get(f"issues/{branch_issue(pr['head']['ref'])}")
+                actor = issue["user"]["login"]
+                validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
+                    organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
+                    is_sc=team_api.is_active_member(*ctx.sc_team, actor))
             count = len(records(head_tree, head_read, ctx))
         else:
             count = validate_snapshot(base_tree, head_tree, base_read, head_read, pr["user"]["login"], sc_lookup=team_api.is_active_member)
@@ -255,6 +261,8 @@ def main():
             validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, current, ctx,
                 organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
                 is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+        elif acceptance_pr:
+            validate_acceptance_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx, team_api)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):
             raise Invalid("PR author is no longer an active member of the SC team")
         if publish:

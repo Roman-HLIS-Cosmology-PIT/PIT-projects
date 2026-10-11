@@ -59,7 +59,7 @@ def parse_yaml(text: str):
 USERNAME = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\Z")
 PROJECT_PATH = re.compile(r"projects/(P[0-9]{3,})\.yaml\Z")
 GROUP_PATH = re.compile(r"working_groups/([A-Z][A-Z0-9_-]*)\.yaml\Z")
-PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username", "submission"}
+PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username", "submission", "acceptance"}
 
 
 def usernames(values, label):
@@ -80,6 +80,7 @@ class Context:
     sc_team: tuple[str, str]
     deliverables: dict[str, set[str]]
     working_groups: dict[str, dict]
+    review_owners: tuple[str, ...] = ()
 
 
 def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Context:
@@ -128,13 +129,27 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
         raise Invalid("Contributors cannot manage project membership")
     if not set(policy["contributor_editable_fields"]) <= set(policy["lead_editable_fields"]):
         raise Invalid("Contributor fields must also be lead-editable")
-    # CODEOWNERS is the one source of the team identifier; GitHub owns its roster.
+    # Review routing and SC authorization are independent. GitHub owns the roster.
     lines = [line.split("#", 1)[0].strip() for line in read_text(".github/CODEOWNERS").splitlines()]
     rules = [line for line in lines if line]
-    match = re.fullmatch(r"\*\s+@([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)/([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)", rules[0]) if len(rules) == 1 else None
-    if match is None:
-        raise Invalid("CODEOWNERS must contain one wildcard rule for the SC GitHub team")
-    sc_team = (match[1], match[2])
+    tokens = rules[0].split() if len(rules) == 1 else []
+    owner_pattern = r"@[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?"
+    if len(tokens) < 2 or tokens[0] != "*" or any(not re.fullmatch(owner_pattern, x) for x in tokens[1:]):
+        raise Invalid("CODEOWNERS must contain one wildcard rule with valid GitHub users or teams")
+    review_owners = tuple(tokens[1:])
+    if "config/access.yaml" in paths:
+        access = parse_yaml(read_text("config/access.yaml"))
+        if not isinstance(access, dict) or set(access) != {"steering_committee"}:
+            raise Invalid("Access configuration requires only steering_committee: organization/team-slug")
+        team = access["steering_committee"]
+        if not isinstance(team, str) or not re.fullmatch(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", team):
+            raise Invalid("Invalid steering_committee organization/team-slug")
+        sc_team = tuple(team.split("/"))
+    elif len(review_owners) == 1 and "/" in review_owners[0]:
+        # Read old accepted snapshots while publishing the staged migration.
+        sc_team = tuple(review_owners[0][1:].split("/"))
+    else:
+        raise Invalid("Set config/access.yaml before routing reviews to an individual")
     group_paths = sorted(p for p in paths if p.startswith("working_groups/"))
     legacy_paths = {p for p in paths if p.startswith("config/deliverables/")}
     definitions = {}
@@ -185,7 +200,7 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
                 raise Invalid(f"Duplicate deliverable ID in {wg}")
             ids.add(item["id"])
         deliverables[wg] = ids
-    return Context(schema, policy, sc_team, deliverables, definitions)
+    return Context(schema, policy, sc_team, deliverables, definitions, review_owners)
 
 
 def validate_record(record: dict, path: str, ctx: Context):
@@ -226,6 +241,9 @@ def validate_record(record: dict, path: str, ctx: Context):
         https_url(link)
     if isinstance(record.get("slack_channel"), str) and not record["slack_channel"].strip():
         raise Invalid("Slack channel cannot be whitespace")
+    if "acceptance" in record:
+        from scripts.acceptance import timestamp
+        timestamp(record["acceptance"]["accepted_at"])
     url = record.get("github_url")
     if url is not None and url.rstrip("/").rsplit("/", 1)[-1] in {".", ".."}:
         raise Invalid("GitHub URL must refer to a repository")
@@ -249,6 +267,8 @@ def authorize_change(old, new, actor: str, ctx: Context, *, organization_member:
     if not organization_member:
         raise Invalid("Requester must be a verified organization member")
     if old is None:
+        if "acceptance" in new:
+            raise Invalid("Members cannot supply acceptance metadata")
         if not ctx.policy["kinds"][new["kind"]]["member_can_create"]:
             raise Invalid("Only SC members can declare this project kind")
         if new["lead_github_username"] is None or new["lead_github_username"].lower() != actor:
@@ -305,6 +325,8 @@ def local_records(root: Path, ctx: Context):
 
 def load_local_context(root: Path) -> Context:
     paths = []
+    if (root / "config/access.yaml").exists():
+        paths.append("config/access.yaml")
     for directory in (root / "working_groups", root / "config/deliverables"):
         if directory.is_symlink():
             raise Invalid("Symlinked catalogue directories are not supported")

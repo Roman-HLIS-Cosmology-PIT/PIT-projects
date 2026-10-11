@@ -140,6 +140,8 @@ class FakeAPI:
                 "head": {"sha": self.refs[payload["head"]], "ref": payload["head"], "repo": {"full_name": self.repo}},
                 "body": payload["body"]}
             return deepcopy(self.pr)
+        if endpoint == "pulls/99/requested_reviewers":
+            return deepcopy(self.pr)
         if endpoint == "pulls/99":
             self.pr.update(payload)
             return deepcopy(self.pr)
@@ -147,11 +149,12 @@ class FakeAPI:
             self.dispatches.append(payload)
             return None
         if endpoint == "issues/12/comments":
-            self.comments.append({"id": 1, "body": payload["body"], "user": deepcopy(BOT)})
-            return {"id": 1}
-        if endpoint == "issues/comments/1":
-            self.comments[0]["body"] = payload["body"]
-            return deepcopy(self.comments[0])
+            self.comments.append({"id": len(self.comments) + 1, "body": payload["body"], "user": deepcopy(BOT)})
+            return {"id": len(self.comments)}
+        if endpoint.startswith("issues/comments/"):
+            comment = self.comments[int(endpoint.rsplit("/", 1)[1]) - 1]
+            comment["body"] = payload["body"]
+            return deepcopy(comment)
         raise AssertionError((method, endpoint))
 
 
@@ -259,8 +262,8 @@ class SubmissionTests(unittest.TestCase):
         self.ctx.deliverables["NEW"] = {"NEW-1"}
         spec = form(self.ctx)
         fields = {f["id"]: f for f in spec["body"] if "id" in f}
-        self.assertIn("NEW", fields["working_group"]["attributes"]["options"])
-        self.assertIn("NEW / NEW-1", fields["deliverable_ids"]["attributes"]["options"])
+        self.assertIn("NEW — New science", fields["working_group"]["attributes"]["options"])
+        self.assertIn("NEW / NEW-1 — New deliverable", fields["deliverable_ids"]["attributes"]["options"])
         self.parse(issue_fixture(working_group="NEW", deliverable_ids="NEW / NEW-1"))
 
     def test_schema_validates_related_links_outside_issue_intake(self):
@@ -285,14 +288,14 @@ class IntakeIntegrationTests(unittest.TestCase):
         self.assertEqual(self.run_process(api), "updated")
         self.assertNotEqual(api.pr["head"]["sha"], first_head)
         self.assertEqual(len([w for w in api.writes if w[:2] == ("POST", "pulls")]), 1)
-        self.assertEqual(len(api.comments), 1)
+        self.assertEqual(len(api.comments), 2)
         self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"pr_number": "99"}})
 
     def test_invalid_new_issue_has_feedback_and_no_pr(self):
         api = FakeAPI(issue_fixture(contributors="Missing username"))
         self.assertEqual(self.run_process(api), "invalid")
         self.assertIsNone(api.pr)
-        self.assertIn("Contributors", api.comments[0]["body"])
+        self.assertIn("Contributors", api.comments[-1]["body"])
         self.assertNotIn("git/refs", [x[1] for x in api.writes])
 
     def test_invalid_edit_blocks_previously_valid_pr(self):
@@ -367,14 +370,14 @@ class IntakeIntegrationTests(unittest.TestCase):
         api = FakeAPI(issue_fixture(github_url="https://github.com/example/private"))
         self.run_process(api, warning="Repository could not be verified; SC should check.")
         self.assertIn("could not be verified", api.pr["body"])
-        self.assertIn("could not be verified", api.comments[0]["body"])
+        self.assertIn("could not be verified", api.comments[-1]["body"])
 
     def test_unrelated_branch_edits_are_not_overwritten(self):
         api = FakeAPI()
         self.run_process(api)
         api.data[api.pr["head"]["sha"]]["scripts/evil.py"] = "print('unsafe')"
         self.assertEqual(self.run_process(api), "invalid")
-        self.assertIn("unrelated changes", api.comments[0]["body"])
+        self.assertIn("unrelated changes", api.comments[-1]["body"])
 
     def test_bot_pr_policy_rechecks_live_issue_and_publishes_on_head(self):
         api = FakeAPI()
