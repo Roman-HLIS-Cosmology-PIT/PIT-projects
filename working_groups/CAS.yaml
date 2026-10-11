@@ -1,4 +1,5 @@
 working_group: CAS
+description: CAS working group
 deliverables:
   - id: CAS-1
     title: Photometric redshift inference
@@ -12,3 +13,4 @@ deliverables:
     title: 2-point statistics measurement
   - id: CAS-6
     title: Observational systematics parametrizatin and priors
+

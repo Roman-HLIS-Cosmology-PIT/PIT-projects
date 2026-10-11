@@ -1,4 +1,5 @@
 working_group: CPIP
+description: CPIP working group
 deliverables:
   - id: CPI-1
     title: 3x2pt and cluster cosmology
@@ -16,3 +17,4 @@ deliverables:
     title: Mass mapping and high-order statistics
   - id: CPI-8
     title: Forecasting HLIS performance
+

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 
 from scripts.project_registry import (
-    Invalid, PROJECT_PATH, USERNAME, authorize_change, load_context, local_reader, parse_yaml, validate_record,
+    Invalid, PROJECT_PATH, USERNAME, authorize_change, load_context, load_local_context, parse_yaml, validate_record,
 )
 
 
@@ -126,20 +126,16 @@ def records(tree, read, ctx):
     # An empty registry retains its directory using .gitkeep.
     if "projects" not in tree or tree["projects"]["type"] != "tree":
         raise Invalid("projects/ must be present as a directory")
-    expected = {f"config/deliverables/{wg}.yaml" for wg in ctx.deliverables}
-    actual = {p for p in tree if p.startswith("config/deliverables/")}
-    if actual != expected:
-        raise Invalid("Deliverable catalogue files must match the configured working groups")
     return result
 
 
 def validate_snapshot(base_tree, head_tree, base_read, head_read, author, *, sc_lookup):
-    base_ctx = load_context(base_read)
+    base_ctx = load_context(base_read, paths=base_tree)
     # Phase 1 has no submission bridge. Do not trust bots' PR bodies, labels,
     # YAML usernames or workflow dispatch payloads as authenticated requesters.
     if not sc_lookup(*base_ctx.sc_team, author):
         raise Invalid("Stage 1 accepts direct SC-authored PRs only; intake authentication is not installed")
-    proposed_ctx = load_context(head_read)
+    proposed_ctx = load_context(head_read, paths=head_tree)
     old = records(base_tree, base_read, base_ctx)
     new = records(head_tree, head_read, proposed_ctx)
     for path in set(old) | set(new):
@@ -152,7 +148,7 @@ def main():
     try:
         team_api = TeamDirectory(os.environ.get("SC_TEAM_READ_TOKEN", ""))
         if sys.argv[1:] == ["--check-team"]:
-            ctx = load_context(local_reader(Path.cwd()))
+            ctx = load_local_context(Path.cwd())
             team_api.check_team(*ctx.sc_team)
             print("Configured SC team is accessible; no membership roster was stored.")
             return 0
@@ -175,7 +171,7 @@ def main():
         base_tree = api.tree(pr["base"]["sha"])
         head_tree = api.tree(pr["head"]["sha"])
         base_read = api.reader(base_tree)
-        ctx = load_context(base_read)
+        ctx = load_context(base_read, paths=base_tree)
         if ctx.sc_team[0].lower() != api.repo.split("/", 1)[0].lower():
             raise Invalid("SC team must belong to this repository's organization")
         count = validate_snapshot(base_tree, head_tree, base_read, api.reader(head_tree), pr["user"]["login"], sc_lookup=team_api.is_active_member)
@@ -196,3 +192,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

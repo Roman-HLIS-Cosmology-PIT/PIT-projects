@@ -29,3 +29,6 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - name: Verify the machine-readable catalogue can be built
         run: python -m scripts.project_registry catalog --output build/projects.json
+      - name: Verify the combined working-group YAML can be built
+        run: python -m scripts.project_registry working-groups --output build/working_groups.yaml
+

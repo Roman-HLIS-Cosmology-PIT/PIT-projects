@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
-from typing import Callable
+from typing import Callable, Iterable
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -58,6 +58,7 @@ def parse_yaml(text: str):
 
 USERNAME = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\Z")
 PROJECT_PATH = re.compile(r"projects/(P[0-9]{3,})\.yaml\Z")
+GROUP_PATH = re.compile(r"working_groups/([A-Z][A-Z0-9_-]*)\.yaml\Z")
 PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username"}
 
 
@@ -78,9 +79,11 @@ class Context:
     policy: dict
     sc_team: tuple[str, str]
     deliverables: dict[str, set[str]]
+    working_groups: dict[str, dict]
 
 
-def load_context(read_text: Callable[[str], str]) -> Context:
+def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Context:
+    paths = set(paths)
     schema = json.loads(read_text("schema/project.schema.json"))
     try:
         Draft202012Validator.check_schema(schema)
@@ -132,13 +135,44 @@ def load_context(read_text: Callable[[str], str]) -> Context:
     if match is None:
         raise Invalid("CODEOWNERS must contain one wildcard rule for the SC GitHub team")
     sc_team = (match[1], match[2])
-    deliverables = {}
-    for wg in props["working_group"]["enum"]:
-        if not re.fullmatch(r"[A-Z][A-Z0-9_-]*", wg):
+    group_paths = sorted(p for p in paths if p.startswith("working_groups/"))
+    legacy_paths = {p for p in paths if p.startswith("config/deliverables/")}
+    definitions = {}
+    if "working_groups" in paths or group_paths:
+        if legacy_paths:
+            raise Invalid("Remove config/deliverables/ when using working_groups/; keep one source")
+        if not group_paths:
+            raise Invalid("working_groups/ must contain at least one working-group YAML file")
+        if "enum" in props["working_group"]:
+            raise Invalid("Remove the working_group schema enum; working_groups/ defines the allowed groups")
+        for path in group_paths:
+            match = GROUP_PATH.fullmatch(path)
+            if match is None:
+                raise Invalid("working_groups/ must contain only <UPPERCASE-CODE>.yaml files")
+            wg = match[1]
+            data = parse_yaml(read_text(path))
+            if not isinstance(data, dict) or set(data) != {"working_group", "description", "deliverables"} or data["working_group"] != wg:
+                raise Invalid("Working-group definition must match its filename and contain description and deliverables")
+            if not isinstance(data["description"], str) or not data["description"].strip():
+                raise Invalid("Working-group description must be a nonempty string")
+            definitions[wg] = data
+    else:
+        # Read older trusted-base snapshots during the two-step directory migration.
+        # The new layout never takes its group choices from this legacy enum.
+        groups = props["working_group"].get("enum")
+        if not isinstance(groups, list) or not groups:
+            raise Invalid("working_groups/ is required; no valid legacy catalogue was found")
+        if any(not isinstance(wg, str) or not re.fullmatch(r"[A-Z][A-Z0-9_-]*", wg) for wg in groups):
             raise Invalid("Working-group codes must be safe uppercase file identifiers")
-        data = parse_yaml(read_text(f"config/deliverables/{wg}.yaml"))
-        if not isinstance(data, dict) or set(data) != {"working_group", "deliverables"} or data["working_group"] != wg:
-            raise Invalid(f"Invalid deliverable catalogue for {wg}")
+        if len(set(groups)) != len(groups) or legacy_paths != {f"config/deliverables/{wg}.yaml" for wg in groups}:
+            raise Invalid("Legacy deliverable files must match the configured working groups")
+        for wg in sorted(groups):
+            data = parse_yaml(read_text(f"config/deliverables/{wg}.yaml"))
+            if not isinstance(data, dict) or set(data) != {"working_group", "deliverables"} or data["working_group"] != wg:
+                raise Invalid("Invalid legacy deliverable catalogue")
+            definitions[wg] = {**data, "description": f"{wg} working group (legacy catalogue)"}
+    deliverables = {}
+    for wg, data in definitions.items():
         if not isinstance(data["deliverables"], list):
             raise Invalid("Deliverables must be a list")
         ids = set()
@@ -151,7 +185,7 @@ def load_context(read_text: Callable[[str], str]) -> Context:
                 raise Invalid(f"Duplicate deliverable ID in {wg}")
             ids.add(item["id"])
         deliverables[wg] = ids
-    return Context(schema, policy, sc_team, deliverables)
+    return Context(schema, policy, sc_team, deliverables, definitions)
 
 
 def validate_record(record: dict, path: str, ctx: Context):
@@ -182,6 +216,8 @@ def validate_record(record: dict, path: str, ctx: Context):
     roster = usernames([person["github_username"] for person in record["contributors"]], "Contributors")
     if lead is not None and lead.lower() in roster:
         raise Invalid("The lead is implicitly a project member; do not repeat them as a contributor")
+    if record["working_group"] not in ctx.working_groups:
+        raise Invalid("Working group must exist in working_groups/ (or the legacy catalogue during migration)")
     unknown = set(record["deliverable_ids"]) - ctx.deliverables[record["working_group"]]
     if unknown:
         raise Invalid("Deliverable IDs must exist in the selected working group's catalogue")
@@ -249,10 +285,6 @@ def local_records(root: Path, ctx: Context):
     records = {}
     if not (root / "projects").is_dir() or (root / "projects").is_symlink():
         raise Invalid("projects/ must be a regular directory")
-    expected = {f"{wg}.yaml" for wg in ctx.deliverables}
-    actual = {p.name for p in (root / "config/deliverables").iterdir()}
-    if actual != expected:
-        raise Invalid("Deliverable catalogue files must match the configured working groups")
     for target in sorted((root / "projects").rglob("*")):
         path = target.relative_to(root).as_posix()
         if path == "projects/.gitkeep":
@@ -265,6 +297,19 @@ def local_records(root: Path, ctx: Context):
     return records
 
 
+def load_local_context(root: Path) -> Context:
+    paths = []
+    for directory in (root / "working_groups", root / "config/deliverables"):
+        if directory.is_symlink():
+            raise Invalid("Symlinked catalogue directories are not supported")
+        if directory.exists():
+            if not directory.is_dir():
+                raise Invalid("Catalogue paths must be regular directories")
+            paths.append(directory.relative_to(root).as_posix())
+            paths.extend(p.relative_to(root).as_posix() for p in directory.rglob("*"))
+    return load_context(local_reader(root), paths=paths)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -272,6 +317,8 @@ def main():
     sub.add_parser("validate")
     catalog = sub.add_parser("catalog")
     catalog.add_argument("--output", type=Path)
+    groups = sub.add_parser("working-groups", help="Export one combined YAML catalogue from the working-group files")
+    groups.add_argument("--output", type=Path)
     simulate = sub.add_parser("simulate", help="Local policy simulation; never authenticates anyone")
     simulate.add_argument("--actor", required=True)
     simulate.add_argument("--member", action="store_true", help="Assume verified org membership for simulation")
@@ -280,7 +327,7 @@ def main():
     simulate.add_argument("--new", type=Path, required=True)
     args = parser.parse_args()
     try:
-        ctx = load_context(local_reader(args.root))
+        ctx = load_local_context(args.root)
         if args.command == "simulate":
             new = parse_yaml(args.new.read_text())
             old = parse_yaml(args.old.read_text()) if args.old else None
@@ -289,12 +336,19 @@ def main():
                 validate_record(old, f"projects/{old['project_id']}.yaml", ctx)
             authorize_change(old, new, args.actor, ctx, organization_member=args.member, is_sc=args.sc)
             print("Allowed by policy (simulation only; no GitHub changes).")
+        elif args.command == "working-groups":
+            output = yaml.safe_dump({"working_groups": list(ctx.working_groups.values())}, sort_keys=False, allow_unicode=True)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(output, encoding="utf-8")
+            else:
+                print(output, end="")
         else:
             records = local_records(args.root, ctx)
             if args.command == "validate":
                 print(f"Registry valid: {len(records)} project(s).")
             else:
-                output = json.dumps({"schema_version": 1, "projects": list(records.values())}, indent=2) + "\n"
+                output = json.dumps({"schema_version": 1, "working_groups": list(ctx.working_groups.values()), "projects": list(records.values())}, indent=2, ensure_ascii=False) + "\n"
                 if args.output:
                     args.output.parent.mkdir(parents=True, exist_ok=True)
                     args.output.write_text(output, encoding="utf-8")
@@ -308,3 +362,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

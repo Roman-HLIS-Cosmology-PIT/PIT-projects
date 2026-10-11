@@ -10,6 +10,9 @@ Before connecting ordinary-member submissions:
    and YAML usernames are not proof of identity.
 2. Verify organization membership with a trusted GitHub API lookup.
 3. Read the accepted record and configuration from the current base commit.
+   Discover group files from that commit's `working_groups/` directory and use
+   their descriptions/deliverables for selection choices; do not hard-code
+   working-group choices in the submission workflow.
 4. Determine SC authority using `TeamDirectory.is_active_member`, with the
    team from base CODEOWNERS. Never store a duplicate member list.
 5. Collect the lead's name and separate `lead_github_username`, and each
@@ -44,3 +47,4 @@ and CLI helpers remain later steps.
 
 Central credentials remain in trusted Actions secrets or a GitHub App. Never
 commit or distribute them to submitters.
+

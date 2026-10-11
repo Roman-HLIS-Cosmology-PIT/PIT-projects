@@ -1,4 +1,5 @@
 working_group: SCM
+description: Shape and Color Measurement
 deliverables:
   - id: SCM-1
     title: Calibration
@@ -10,3 +11,4 @@ deliverables:
     title: Photometry and color measurement
   - id: SCM-5
     title: Image simulations
+

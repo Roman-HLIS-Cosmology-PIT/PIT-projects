@@ -31,8 +31,9 @@
     "summary": {"type": "string", "minLength": 1, "description": "Long Markdown text; use YAML literal block syntax."},
     "kind": {"type": "string", "enum": ["EP", "CPP", "KEY"], "description": "Enhancing project (EP), critical path project (CPP), key project (KEY)."},
     "status": {"type": "string", "enum": ["active", "paused", "IR", "completed"], "description": "IR = internal review of the project's work, distinct from proposal review."},
-    "working_group": {"type": "string", "enum": ["SCM", "CAS", "CPIP"]},
+    "working_group": {"type": "string", "minLength": 1, "pattern": "^[A-Z][A-Z0-9_-]*$", "description": "Must match a code defined by working_groups/<CODE>.yaml; the catalogue defines allowed groups."},
     "deliverable_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "Must belong to the selected working group's deliverable catalogue."},
     "github_url": {"anyOf": [{"type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+/?$"}, {"type": "null"}], "description": "Optional main GitHub repository; omit or set null if unknown."}
   }
 }
+

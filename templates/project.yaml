@@ -14,6 +14,8 @@ summary: |
   The summary can contain several paragraphs and Markdown lists.
 kind: EP
 status: active
+# Choose a code defined by working_groups/<CODE>.yaml.
 working_group: SCM
 deliverable_ids: []
 github_url: null
+

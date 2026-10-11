@@ -8,7 +8,7 @@ import unittest
 import yaml
 
 from scripts.project_registry import (
-    Invalid, authorize_change, load_context, parse_yaml, validate_record,
+    Invalid, authorize_change, load_context, load_local_context, parse_yaml, validate_record,
 )
 from scripts.validate_pr import GitHub, validate_snapshot
 
@@ -17,15 +17,40 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source_data():
     data = {}
-    for folder in ("config", "schema"):
+    for folder in ("config", "schema", "working_groups"):
         for file in (ROOT / folder).rglob("*"):
             if file.is_file():
                 data[file.relative_to(ROOT).as_posix()] = file.read_text()
     # Tests use a synthetic team, never a stored production membership roster.
     data[".github/CODEOWNERS"] = "* @test-org/steering-committee\n"
-    data["config/deliverables/SCM.yaml"] = "working_group: SCM\ndeliverables: [{id: SCM-001, title: Test deliverable}]\n"
-    data["config/deliverables/CAS.yaml"] = "working_group: CAS\ndeliverables: [{id: CAS-001, title: Other deliverable}]\n"
+    # Fixtures use the new format even while the production layout is migrating.
+    schema = json.loads(data["schema/project.schema.json"])
+    schema["properties"]["working_group"].pop("enum", None)
+    data["schema/project.schema.json"] = json.dumps(schema)
+    for path in list(data):
+        if path.startswith("config/deliverables/"):
+            group = parse_yaml(data.pop(path))
+            group["description"] = f"{group['working_group']} test working group"
+            data[f"working_groups/{group['working_group']}.yaml"] = yaml.safe_dump(group)
+    data["working_groups/SCM.yaml"] = "working_group: SCM\ndescription: Shape and Color Measurement\ndeliverables: [{id: SCM-001, title: Test deliverable}]\n"
+    data["working_groups/CAS.yaml"] = "working_group: CAS\ndescription: CAS test group\ndeliverables: [{id: CAS-001, title: Other deliverable}]\n"
     return data
+
+
+def legacy_data(data):
+    """Build an old-layout snapshot to exercise the trusted-base migration."""
+    result = deepcopy(data)
+    groups = []
+    for path in list(result):
+        if path.startswith("working_groups/"):
+            group = parse_yaml(result.pop(path))
+            groups.append(group["working_group"])
+            del group["description"]
+            result[f"config/deliverables/{group['working_group']}.yaml"] = yaml.safe_dump(group)
+    schema = json.loads(result["schema/project.schema.json"])
+    schema["properties"]["working_group"]["enum"] = sorted(groups)
+    result["schema/project.schema.json"] = json.dumps(schema)
+    return result
 
 
 def person(username, name=None):
@@ -58,7 +83,7 @@ def is_test_sc(org, slug, actor):
 class RegistryTests(unittest.TestCase):
     def setUp(self):
         self.data = source_data()
-        self.ctx = load_context(self.data.__getitem__)
+        self.ctx = load_context(self.data.__getitem__, paths=self.data)
 
     def valid(self, record):
         validate_record(record, f"projects/{record['project_id']}.yaml", self.ctx)
@@ -263,20 +288,20 @@ class RegistryTests(unittest.TestCase):
         schema["properties"]["name"] = {"$ref": "https://example.com/schema"}
         self.data["schema/project.schema.json"] = json.dumps(schema)
         with self.assertRaises(Invalid):
-            load_context(self.data.__getitem__)
+            load_context(self.data.__getitem__, paths=self.data)
 
     def test_add_optional_field_without_changing_validator(self):
         schema = json.loads(self.data["schema/project.schema.json"])
         schema["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
         self.data["schema/project.schema.json"] = json.dumps(schema)
-        ctx = load_context(self.data.__getitem__)
+        ctx = load_context(self.data.__getitem__, paths=self.data)
         validate_record(project(tags=["weak-lensing"]), "projects/P001.yaml", ctx)
 
     def test_add_enum_status_without_changing_validator(self):
         schema = json.loads(self.data["schema/project.schema.json"])
         schema["properties"]["status"]["enum"].append("archived")
         self.data["schema/project.schema.json"] = json.dumps(schema)
-        ctx = load_context(self.data.__getitem__)
+        ctx = load_context(self.data.__getitem__, paths=self.data)
         validate_record(project(status="archived"), "projects/P001.yaml", ctx)
 
     def test_unknown_kind_policy_fails_closed(self):
@@ -284,12 +309,12 @@ class RegistryTests(unittest.TestCase):
         del policy["kinds"]["KEY"]
         self.data["config/policy.yaml"] = yaml.safe_dump(policy)
         with self.assertRaises(Invalid):
-            load_context(self.data.__getitem__)
+            load_context(self.data.__getitem__, paths=self.data)
 
     def test_codeowners_requires_one_team_not_individual_usernames(self):
         self.data[".github/CODEOWNERS"] = "* @alice\n"
         with self.assertRaises(Invalid):
-            load_context(self.data.__getitem__)
+            load_context(self.data.__getitem__, paths=self.data)
 
     def test_proposed_sc_team_cannot_grant_requester_permission(self):
         proposed = deepcopy(self.data)
@@ -307,13 +332,13 @@ class RegistryTests(unittest.TestCase):
     def test_existing_projects_rechecked_when_deliverables_change(self):
         self.data["projects/P001.yaml"] = yaml.safe_dump(project())
         proposed = deepcopy(self.data)
-        proposed["config/deliverables/SCM.yaml"] = "working_group: SCM\ndeliverables: []\n"
+        proposed["working_groups/SCM.yaml"] = "working_group: SCM\ndescription: Shape and Color Measurement\ndeliverables: []\n"
         with self.assertRaises(Invalid):
             validate_snapshot(snapshot(self.data), snapshot(proposed), self.data.__getitem__, proposed.__getitem__, "sc-user", sc_lookup=is_test_sc)
 
-    def test_extra_deliverable_catalogue_rejected(self):
+    def test_unexpected_file_in_working_groups_rejected(self):
         proposed = deepcopy(self.data)
-        proposed["config/deliverables/UNKNOWN.yaml"] = "working_group: UNKNOWN\ndeliverables: []\n"
+        proposed["working_groups/notes.txt"] = "unrecognized data file"
         with self.assertRaises(Invalid):
             validate_snapshot(snapshot(self.data), snapshot(proposed), self.data.__getitem__, proposed.__getitem__, "sc-user", sc_lookup=is_test_sc)
 
@@ -346,3 +371,4 @@ class RegistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

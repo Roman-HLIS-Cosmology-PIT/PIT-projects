@@ -8,6 +8,8 @@ summary: |
   Describe the work the collaboration needs and what taking the lead involves.
 kind: CPP
 status: active
+# Choose a code defined by working_groups/<CODE>.yaml.
 working_group: SCM
 deliverable_ids: []
 github_url: null
+

@@ -56,13 +56,16 @@ rejected so native review and authorization use the same single identifier.
 Active members/maintainers count; pending invitations do not. GitHub's endpoint
 includes child-team members; choose team nesting deliberately.
 
-Deliverable catalogues can remain empty, using `deliverable_ids: []` in records.
-Add actual deliverables to the corresponding group file when available:
+Working groups are discovered from `working_groups/<CODE>.yaml`. Each file
+requires `working_group`, `description`, and `deliverables`; the code must match
+the filename. Deliverable lists can be empty, using `deliverable_ids: []`
+in records. Add deliverables to the corresponding group file when available:
 
 ```yaml
 working_group: SCM
+description: Shape and Color Measurement
 deliverables:
-  - id: SCM-001
+  - id: SCM-1
     title: Replace with the actual deliverable title
 ```
 
@@ -104,10 +107,13 @@ python -m pip install -r requirements.txt
 python -m scripts.project_registry validate
 python -m unittest discover -s tests -v
 python -m scripts.project_registry catalog --output build/projects.json
+python -m scripts.project_registry working-groups --output build/working_groups.yaml
 ```
 
 Expected: `Registry valid: 0 project(s).`, all tests pass, and the catalogue
-contains `"projects": []`. Local checks use offline fixtures; no credential is
+contains `"projects": []` and the working-group metadata. The combined YAML
+contains every group's code, description and deliverables. Local checks use
+offline fixtures; no credential is
 needed. Production PR checks do live membership lookups.
 
 Commit/push the bootstrap to `main` yourself before enabling protection.
@@ -157,6 +163,9 @@ then fix it and verify success:
 | SC CPP/KEY declaration with both lead fields null and empty contributors | Pass |
 | Unknown kind, status, group, or field | Fail |
 | Unknown deliverable or ID from another working group | Fail |
+| New correctly formatted group file with a project referencing it | Pass without schema/code edits |
+| Working-group filename/code mismatch, blank description, duplicate ID or unknown catalogue field | Fail |
+| Removing a group/deliverable still used by a project | Fail; migrate the affected project in the same PR |
 | Missing/null GitHub URL | Pass |
 | Non-GitHub URL or repository subpage URL | Fail |
 | Repeated contributor GitHub username (even with different names), or lead username repeated in contributors | Fail |
@@ -209,6 +218,10 @@ The separate creation workflow will connect these member policies later.
 
 ## Evolution and troubleshooting
 
+For this directory change on an existing repository, follow the two-step
+[migration instructions](working-groups.md) so trusted-base PR validation can
+read the new layout before you move the files.
+
 Add fields/statuses/groups through an SC PR as described in README. The whole
 proposed registry is checked; migrate records for incompatible changes.
 Run proposed code tests locally; the PR check executes trusted base code only.
@@ -228,3 +241,4 @@ Run proposed code tests locally; the PR check executes trusted base code only.
 References: [team lookup](https://docs.github.com/en/rest/teams/members#get-team-membership-for-a-user),
 [tokens](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token),
 [Wiki access](https://docs.github.com/en/communities/documenting-your-project-with-wikis/changing-access-permissions-for-wikis).
+

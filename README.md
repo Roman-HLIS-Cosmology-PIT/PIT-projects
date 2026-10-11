@@ -59,8 +59,9 @@ Follow [setup and testing](docs/setup-and-test.md) for the complete settings.
 
 This workflow validates every accepted project against the current schema and
 deliverable catalogues, checks that the configured SC team is accessible,
-runs regression tests, and builds `build/projects.json` on the runner.
-The JSON is a temporary verification output: it is not committed, uploaded
+runs regression tests, and builds `build/projects.json` and
+`build/working_groups.yaml` on the runner.
+These are temporary verification outputs: they are not committed, uploaded
 as an artifact, or published. Generate it locally using the commands below
 when you want to search or export the registry.
 
@@ -108,7 +109,7 @@ next unused `P001`, `P002`, etc. Do not reuse an accepted project's ID.
 | `summary` | Long Markdown string | Required; use a YAML `\|` literal block |
 | `kind` | `EP`, `CPP`, `KEY` | Enhancing / critical path / key project |
 | `status` | `active`, `paused`, `IR`, `completed` | `IR` means internal review of the work |
-| `working_group` | `SCM`, `CAS`, `CPIP` | One working group per project |
+| `working_group` | A code from `working_groups/<CODE>.yaml` | One working group per project; allowed codes come from directory contents |
 | `deliverable_ids` | List of strings | May be empty; IDs must exist in that group's catalogue |
 | `github_url` | Repository HTTPS URL or `null` | Optional; can be omitted and added later |
 
@@ -148,6 +149,52 @@ github_url: null
 The 1 MiB file limit is an operational limit, not a short-summary requirement.
 Only known fields are allowed, so a typo cannot silently create a new category.
 
+## Working groups and deliverables
+
+Each file in `working_groups/` defines one working group, its description,
+and its deliverables. For example, `working_groups/SCM.yaml`:
+
+```yaml
+working_group: SCM
+description: Shape and Color Measurement
+deliverables:
+  - id: SCM-1
+    title: Calibration
+  - id: SCM-2
+    title: Image pre-processing
+```
+
+The filename must match the group code. Use uppercase letters, digits,
+underscores or hyphens, starting with a letter. Descriptions may be long YAML
+literal blocks. Each deliverable needs a nonempty, unique `id` within its group
+and a nonempty `title`; IDs do not need to start with the group code.
+`deliverables: []` is allowed. Different groups may reuse an ID: the project's
+`working_group` identifies which catalogue applies.
+
+Projects store the selected group code and its deliverable IDs, not a copied
+list of groups. The validator discovers all group files from the proposed
+repository directory and checks every project against them. There is no
+hard-coded list of working groups in the project schema or Python code.
+
+Adding a group requires only a new file such as `working_groups/NEW.yaml`;
+adding a deliverable requires only another entry in that group's file.
+SC reviews these administrative changes. Removing/renaming a group or used
+deliverable requires migrating affected projects in the same PR.
+
+Generate a single combined YAML file when needed:
+
+```bash
+python -m scripts.project_registry working-groups --output build/working_groups.yaml
+```
+
+The per-group files are the source. The combined YAML is generated, so there
+is no second hand-maintained catalogue. The JSON project export also includes
+the group descriptions and deliverables in a top-level `working_groups` list.
+CAS and CPIP currently use their codes as descriptions; fill in their official
+descriptions in the corresponding files when available.
+
+See [working-group configuration and migration](docs/working-groups.md).
+
 ## Authorization rules
 
 | Operation | Ordinary organization member | Project lead | Contributor | SC |
@@ -161,7 +208,7 @@ Only known fields are allowed, so a typo cannot silently create a new category.
 | Correct the lead's display name | No | Yes | No | Yes |
 | Edit summary, status, deliverables, GitHub URL | No | Yes | Yes | Yes |
 | Edit project name or working group | No | Yes | No | Yes |
-| Change schema, deliverables catalogue, or policy | No | No | No | Yes |
+| Change schema, working-group definitions, deliverables, or policy | No | No | No | Yes |
 
 The member-facing editing rules are defaults inferred from the
 overall design. Their editable field lists are configurable in
@@ -208,10 +255,10 @@ workflow can store them as trusted administrative information.
     registry-health.yml        # Validation/tests after merging into main
 config/
   policy.yaml                  # Creation/claim rules and editable fields
-  deliverables/
-    SCM.yaml
-    CAS.yaml
-    CPIP.yaml
+working_groups/
+  SCM.yaml                     # Group code, description and deliverables
+  CAS.yaml
+  CPIP.yaml
 schema/
   project.schema.json          # Fields, types, choices, required fields
 projects/
@@ -226,9 +273,11 @@ tests/
   test_registry.py
   test_github_adapter.py
   test_team_directory.py
+  test_working_groups.py
 docs/
   setup-and-test.md
   future-intake.md
+  working-groups.md
 requirements.txt
 README.md
 ```
@@ -240,15 +289,17 @@ From the repository root:
 ```bash
 python -m scripts.project_registry validate
 python -m scripts.project_registry catalog --output build/projects.json
+python -m scripts.project_registry working-groups --output build/working_groups.yaml
 ```
 
 `build/projects.json` is generated, not committed. It contains a `projects`
-array with all accepted project records and supports ordinary JSON tools:
+array with all accepted project records and a `working_groups` array with
+descriptions and deliverables. It supports ordinary JSON tools:
 
 ```bash
 jq '.projects[] | select(.working_group == "SCM" and .status == "active")' build/projects.json
 jq '.projects[] | select(.kind == "CPP" and .lead == null)' build/projects.json
-jq '.projects[] | select(.deliverable_ids | index("SCM-001"))' build/projects.json
+jq '.projects[] | select(.deliverable_ids | index("SCM-1"))' build/projects.json
 jq '.projects[] | select((.lead_github_username // "" | ascii_downcase) == "alice" or any(.contributors[]; (.github_username | ascii_downcase) == "alice"))' build/projects.json
 ```
 
@@ -263,8 +314,8 @@ proposed schema/catalogues, so incompatible changes must migrate records in
 the same PR.
 
 - Add/change a status: edit `properties.status.enum` in the schema.
-- Add a working group: edit `properties.working_group.enum` and add the matching
-  `config/deliverables/<GROUP>.yaml` catalogue.
+- Add a working group: add `working_groups/<GROUP>.yaml` with its code,
+  description and deliverables. No schema or code change is needed.
 - Add/change a deliverable: edit its working-group catalogue. Removing a used
   ID requires updating the affected project records in the same PR.
 - Add a kind: edit `properties.kind.enum` and define its three explicit rules
@@ -324,3 +375,4 @@ Official GitHub references:
 - [Secure use of pull_request_target](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 - [Required status checks](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
 - [Team lookup and Members Read permission](https://docs.github.com/en/rest/teams/members#get-team-membership-for-a-user)
+
