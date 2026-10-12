@@ -155,16 +155,14 @@ class FormUpdateTests(unittest.TestCase):
         self.assertNotIn("@someone", body)
         self.assertNotIn("Closes #543", body)
 
-    def test_acknowledgment_precedes_validation_and_is_not_duplicated(self):
-        api = FakeAPI(current_issue())
-        api.base[".github/CODEOWNERS"] = "* @aguinot\n"
+    def test_feedback_is_not_duplicated_and_internal_state_does_not_post_comments(self):
+        api = FakeAPI()
         issue_intake.process(api, Teams(), 12, repo_check=lambda _: None)
-        self.assertEqual(len(api.comments), 3)
-        self.assertTrue(api.comments[0]["body"].startswith(issue_intake.ACK_MARKER))
-        requests = [w for w in api.writes if w[1].endswith("/requested_reviewers")]
-        self.assertEqual(requests[0][2], {"reviewers": ["aguinot"], "team_reviewers": []})
+        self.assertEqual(len(api.comments), 1)
+        self.assertNotIn('Latest submission:', api.comments[0]['body'])
+        self.assertNotIn('awaiting validation', api.comments[0]['body'])
         issue_intake.process(api, Teams(), 12, repo_check=lambda _: None)
-        self.assertEqual(len(api.comments), 3)
+        self.assertEqual(len(api.comments), 1)
 
     def test_current_issue_edit_refreshes_same_pr_summary(self):
         api = FakeAPI(current_issue())

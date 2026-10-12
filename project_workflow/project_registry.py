@@ -16,10 +16,11 @@ from jsonschema.exceptions import SchemaError
 
 
 class Invalid(ValueError):
-    def __init__(self, message, *, fields=(), selections=None):
+    def __init__(self, message, *, fields=(), selections=None, corrections=None):
         super().__init__(message)
         self.fields = set(fields)
         self.selections = selections or {}
+        self.corrections = corrections or {}
 
 
 class StrictLoader(yaml.SafeLoader):

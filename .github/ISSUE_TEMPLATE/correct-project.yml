@@ -4,46 +4,26 @@ description: Replace a submission using the link provided by the automation.
 labels:
 - project-correction
 body:
-- type: markdown
-  attributes:
-    value: Use the correction link from your submission. Keep the three reference fields unchanged. For dropdowns,
-      keep the previous selection or choose replacement values. An empty optional text field clears that answer.
-      A field containing **Keep previous value** retains its earlier answer. Previous-selection boxes are for reference
-      only.
-- type: input
-  id: original_issue
-  attributes:
-    label: Original submission Issue
-  validations:
-    required: true
-- type: input
-  id: previous_issue
-  attributes:
-    label: Previous submission Issue
-  validations:
-    required: true
-- type: input
-  id: correction_token
-  attributes:
-    label: Correction reference
-  validations:
-    required: true
 - type: textarea
-  id: previous_kind
+  id: correction_notes
   attributes:
-    label: Previous selection — Project kind
+    label: Changes needed
   validations:
     required: false
+- type: markdown
+  attributes:
+    value: Update your answers and select each dropdown again. Leave the supplied reference at the end of the description
+      unchanged. Empty optional text fields clear previous answers. **Keep previous value** retains a long answer
+      that could not fit in the link.
 - type: dropdown
   id: kind
   attributes:
     label: Project kind
-    default: 0
     options:
-    - Keep previous selection
     - EP - Enhancing Project
     - CPP - Critical Path Project
     - KEY - Key Project
+    description: Select again for this submission.
   validations:
     required: true
 - type: input
@@ -60,38 +40,24 @@ body:
     description: One GitHub username without @.
   validations:
     required: false
-- type: textarea
-  id: previous_working_group
-  attributes:
-    label: Previous selection — Working group
-  validations:
-    required: false
 - type: dropdown
   id: working_group
   attributes:
     label: Working group
     options:
-    - Keep previous selection
     - CAS — Catalogue And Statistics
     - CPIP — Cosmological Parameter Inference Pipeline
     - SCM — Shape and Color Measurement
-    default: 0
+    description: Select again for this submission.
   validations:
     required: true
-- type: textarea
-  id: previous_deliverable_ids
-  attributes:
-    label: Previous selection — Deliverables
-  validations:
-    required: false
 - type: dropdown
   id: deliverable_ids
   attributes:
     label: Deliverables
     multiple: true
-    description: Select deliverables from your chosen working group.
+    description: Select again for this submission.
     options:
-    - Keep previous selection
     - CAS / CAS-1 — Photometric redshift inference
     - CAS / CAS-2 — Galaxy sample preparation and calibration
     - CAS / CAS-3 — Galaxy cluster identification and cross-correlation
@@ -111,24 +77,16 @@ body:
     - SCM / SCM-3 — Galaxy identification and shape measurement
     - SCM / SCM-4 — Photometry and color measurement
     - SCM / SCM-5 — Image simulations
-    default: 0
   validations:
     required: true
-- type: textarea
-  id: previous_phd_thesis
-  attributes:
-    label: Previous selection — Part of your PhD thesis?
-  validations:
-    required: false
 - type: dropdown
   id: phd_thesis
   attributes:
     label: Part of your PhD thesis?
     options:
-    - Keep previous selection
     - 'False'
     - 'True'
-    default: 0
+    description: Select again for this submission.
   validations:
     required: true
 - type: input
@@ -253,3 +211,7 @@ body:
     placeholder: janesmith
   validations:
     required: false
+- type: markdown
+  attributes:
+    value: After submitting your project, stay on the Issue page until a new message appears with instructions for
+      the next steps. You may need to refresh the page; this can take a few minutes.

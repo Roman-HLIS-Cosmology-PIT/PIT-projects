@@ -100,7 +100,7 @@ the project schema. Different groups may reuse a deliverable ID.
 
 | Workflow / job | Trigger | Result |
 | --- | --- | --- |
-| Project workflows / submission | New-project/correction Issue events, `/edit` comments or manual `submit` retry on main | Acknowledge, authenticate, validate and create/update the same proposal PR across replacement Issues |
+| Project workflows / submission | New-project/correction Issue events, `/edit` comments or manual `submit` retry on main | Authenticate, format, validate and create/update the same proposal PR across replacement Issues |
 | Project workflows / validation | Open PR events targeting main or manual `validate` on main | Independently publish **Project policy** on the current proposed head |
 | Project maintenance / generation | Main push, open PR events, or manual run on main | Synchronize both forms and CODEOWNERS when needed |
 | Project maintenance / registry | Main push or manual main run without a PR number | Validate accepted records, check SC team access and upload `registry-catalogues` exports |
@@ -118,73 +118,77 @@ and related links. Five optional contributor name/username pairs appear in
 numbered subsections at the end. Complete both boxes or leave both blank.
 The stored contributor list has no five-person limit.
 
-After Actions starts, an acknowledgment confirms receipt; the next feedback
-comment explains errors or links the proposal PR. Native GitHub forms can check
-required fields before submission; membership, schema and catalogue checks run
-afterward. GitHub does not provide cascading group/deliverable dropdowns here.
+After submission, stay on the Issue page until the workflow posts next-step
+instructions. You may need to refresh the page; this can take a few minutes.
+There is no separate acknowledgment or latest-submission message. The workflow
+reformats the native field-by-field Issue body into the same readable summary
+used in the PR: bold field labels, names followed by clickable usernames, and
+one contributor list.
 
-If a submission is invalid, the bot adds **invalid** and posts a link to the
-**Correct or Edit Project** form. Text answers are prefilled. Only problematic
-values have **🔴**, without explanations inside the form. Dropdowns have a
-separate previous-selection box immediately above them, for example:
+If validation fails, one feedback comment repeats the complete summary with
+**🔴** only at the problematic fields or entries, then provides a correction
+link. The **Correct or Edit Project** form starts with one plain-text **Changes
+needed** box containing only concise instructions, for example:
 
 ```text
-Previous selection:
-SCM-1
-CAS-1 🔴
+Deliverables: CAS-1 does not belong to SCM. Select a deliverable from your chosen working group.
+Contributor 2 GitHub username: Fill both contributor name and GitHub username, or leave both blank.
 ```
 
-Choose replacement dropdown values, or leave **Keep previous selection** to
-retain the earlier answer. For multiple deliverables, deselect that option
-before choosing replacement deliverables; do not combine the two. The
-previous-selection boxes are guidance: editing them does not change selections.
-An empty optional text field clears that answer. The automation removes its
-standalone/prefixed/suffixed 🔴 guidance markers from replacement text values.
+Text answers are prefilled where the native form supports it. Every dropdown
+must be selected again; its description says **Select again for this
+submission**. There are no per-dropdown previous-selection boxes, no keep-choice
+option, and no Issue-number inputs. Guidance text does not supply project data
+or grant permission. Clearing an optional text field clears that answer.
 
-To edit a valid proposal, the original submitter comments **`/edit`** on the
-latest submission Issue while its PR is open. The bot provides the same form,
-with **no emoji**. Requesting/opening the form leaves the current proposal and
-policy status unchanged. The link is bound to the current Issue answers; if
-those answers change, request a fresh link.
+GitHub's native forms have no hidden inputs. A short routing reference is
+therefore appended as an HTML comment at the end of the prefilled description.
+Keep that comment when changing the description. It is visible in the form's
+text editor, but is removed from the rendered Issue, PR summary and project
+YAML. It carries no credential. Its contents are never trusted as authority:
+the workflow checks the issued reference, source version, live organization
+membership and original author's numeric GitHub identity. Removing or changing
+it rejects an unactivated correction instead of redirecting another proposal.
 
-Submitting a valid correction reference activates a **new Issue**, marks the
-previous one **superseded**, posts a link to the replacement and closes the
-previous Issue. A previously invalid Issue retains its invalid label; a valid
-superseded Issue is not labelled invalid. The project ID, original submission
-date, branch and PR remain unchanged. A valid replacement updates the YAML and
-formatted PR summary. An invalid replacement blocks **Project policy** and
-leaves the last valid YAML in the branch. Its feedback provides another
-correction link. Only the latest Issue remains open; merging the PR closes it.
-Require **Project policy** in branch protection to enforce this merge block.
+To edit a valid proposal, its original author comments **`/edit`** on the latest
+submission Issue while its PR is open. The bot posts a form link with no emoji
+or error list. Opening the link leaves the current proposal and status unchanged.
+A valid correction reference activates a new Issue, labels the previous one
+**superseded**, links it to the replacement and closes it. A previously invalid
+Issue retains **invalid**; a valid superseded Issue does not acquire that label.
 
-The correction form is visible in GitHub's Issue chooser, but requires a link
-issued by the bot. A correction created without valid references, by another
-author, from an obsolete link, or after the PR has merged is rejected and
-closed with guidance. The three reference fields identify the submission and
-must be left unchanged when creating the replacement. After activation, routing
-comes from authenticated bot records, so edited reference boxes cannot redirect
-that Issue to another project. Live organization membership and the original
-author's numeric GitHub identity are checked; a supplied username or PR number
-never grants authority.
+The original project ID, date, branch and PR stay unchanged. A valid replacement
+updates the YAML and formatted PR summary. An invalid replacement blocks
+**Project policy** and leaves the last valid YAML in the branch; its feedback
+provides another correction link. Merging closes the latest Issue. Require
+**Project policy** in branch protection to enforce the merge block. Stale links,
+another author's corrections and corrections after a PR is merged are rejected.
+Opening the correction form directly without an issued reference closes the
+resulting Issue and points to the New Project form.
 
-Both forms are generated from the same `form.body` and catalogues. Change
-shared labels, wording, field order or contributor slots only in the config.
-Labels must be unique, including the generated previous-selection/reference
-labels. When renaming a label, update existing open Issue headings before
-revalidating. Do not edit superseded Issue answers: their frozen content is
-needed to resolve retained selections. Bot comments retain the authenticated
-revision chain and latest-submission link; do not edit/delete those comments.
+The formatted Issue is a display of authenticated saved answers. Editing its
+body manually triggers revalidation and blocks the PR if the display no longer
+matches those answers. Use the provided replacement form to change answers.
+Editing a title alone is supported; revalidation refreshes the same PR.
+Do not edit superseded Issues: their frozen content protects revision history.
 
-Native GitHub links have finite length. When a long text answer would exceed
-the link's size budget, that box contains **Keep previous value** instead of
-all its text. Leaving this value retains the complete previous answer. Replace
-it to change the answer; the bot comment explains this fallback. The form link
-is a static snapshot, not live validation, and 🔴 does not disappear as choices
-are changed. Dynamic headings/descriptions are not supported here.
+Both forms share `form.body` and the working-group catalogues. Change shared
+wording, labels, contributor slots or the closing notice in the single config.
+Native GitHub checks simple required fields where supported; membership, schema
+and catalogue validation run afterward. There are no cascading dropdowns.
+Long text that cannot fit in a correction link is replaced by **Keep previous
+value**, which retains its complete saved answer. Replace that sentinel, while
+keeping the appended reference for a description, to change the answer.
+Very large displays may be shortened to fit GitHub; saved answers remain complete.
 
-PR creation and policy checks share a queued concurrency group to prevent an
-older validator from overriding the status of a newer revision. GitHub queues
-up to 100 waiting jobs in that group; an overflow requires a manual retry.
+Internal revision state and answer receipts live on the bot-managed branch
+`project-workflow/state`, never in main's project/configuration directories and
+never in extra Issue comments or state PRs. The workflow creates it automatically
+using its existing repository token and appends non-forced updates. Leave that
+branch in place and do not edit or merge it. State has the same visibility as the
+repository and contains submitted project information, not secrets.
+Submission and policy jobs share a queued concurrency group to avoid conflicting
+state updates or stale statuses. No new token, login or external backend is used.
 A closed, unmerged PR is not replaced: ask SC to reopen it to continue.
 
 
@@ -328,23 +332,32 @@ main. Do not change tokens or loosen policy to work around a stale run.
 
 ## Installing this update
 
-Apply the supplied patch from the repository root, then publish it through your
-usual direct-main commit or an SC-authored PR. The patch is based on main commit
-`1198f3389505fb17636673bff32ef5e8229570ea` and preserves the accepted test project.
+Apply the patch from the repository root and publish it through your usual
+main commit or SC-authored PR. It is based on main commit
+`b1863043bb8dd6993f04c050f7cab126ccb618ca`. The accepted test project is unchanged.
 
 ```bash
-git apply --check /path/to/PIT-projects-correction-workflow.patch
-git apply /path/to/PIT-projects-correction-workflow.patch
+git apply --check /path/to/PIT-projects-submission-presentation.patch
+git apply /path/to/PIT-projects-submission-presentation.patch
 python -m project_workflow.project_registry validate
 python -m project_workflow.issue_form --check
 ```
 
-Create the `project-correction` label, keep the existing Actions settings and
-membership secret, and require **Project policy** before testing merge blocks.
-No new secret, backend or authentication system is needed. Review requests still
-go only to **aguinot**. If an unmerged proposal predates this update, manually
-retry **Project workflows → submit** for its original Issue once to establish
-its authenticated revision history. Accepted projects do not need migration.
+After publishing, run **Project maintenance** on **main**, with no PR number,
+to ensure the forms are generated by the newly installed code. An installation
+PR runs the previously accepted generator: let it finish its generated-file
+commit and policy check, merge, then run maintenance on main. If main protection
+requires a generated-file synchronization PR, review and merge that PR before
+using the new form. Routine configuration edits still require just one source
+file and generate outputs automatically on main or the same SC PR.
+
+Retain the `new-project` and `project-correction` labels, membership secret and
+Actions settings. Reviews still go only to **aguinot**. The state branch is
+created automatically; no manual setup or new secret is needed.
+Use fresh test submissions for this implementation update. Previous correction
+links/reference inputs are retired; finish or close old test PRs/Issues before
+testing. Accepted project YAML needs no migration. This update does not delete
+old bot comments from previously created test Issues.
 
 ## Testing after installation
 
@@ -364,13 +377,17 @@ its authenticated revision history. Accepted projects do not need migration.
    from `aguinot`, and a passing policy status. Repeat the run; it must reuse
    the same PR. Review and merge it.
 5. Submit a valid EP Issue from an organization member with Read access,
-   entering their own username as lead. Check acknowledgment, formatted PR,
+   entering their own username as lead. Check the readable Issue body, one feedback
+   comment, formatted PR,
    human review request, linked Issue and one YAML addition. Comment `/edit`,
-   verify that the prefilled form has no 🔴, then submit a replacement and
+   verify that the form has no error list or 🔴, select every dropdown again,
+   then submit a replacement and
    verify that the same PR updates and the previous Issue is closed.
 6. Test a working-group/deliverable mismatch or a half-filled contributor pair.
-   Check an **invalid** label and the correction link. Confirm that only the
-   incorrect selection has 🔴. Submit a replacement with corrected answers and
+   Check an **invalid** label and the correction link. Confirm the feedback
+   repeats the full summary and marks only the incorrect selection with 🔴.
+   Check the form starts with short correction instructions, has no Issue-number
+   inputs or previous-selection boxes, and asks you to select dropdowns again. Submit a replacement with corrected answers and
    verify recovery without a duplicate PR. Also confirm an ordinary
    member's CPP/KEY submission is rejected.
 7. Confirm the initial project YAML and PR summary contain the original Issue

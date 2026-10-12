@@ -131,7 +131,7 @@ class FakeAPI:
         self.writes.append((method, endpoint, deepcopy(payload)))
         if endpoint == "git/trees":
             sha = self.next_sha()
-            data = deepcopy(self.data[payload["base_tree"]])
+            data = deepcopy(self.data[payload["base_tree"]]) if "base_tree" in payload else {}
             for entry in payload["tree"]:
                 data[entry["path"]] = entry["content"]
             self.data[sha] = data
@@ -144,7 +144,7 @@ class FakeAPI:
         if endpoint == "git/refs" or endpoint.startswith("git/refs/heads/"):
             ref = payload["ref"].removeprefix("refs/heads/") if endpoint == "git/refs" else endpoint.removeprefix("git/refs/heads/")
             self.refs[ref] = payload["sha"]
-            if self.pr:
+            if self.pr and self.pr["head"]["ref"] == ref:
                 self.pr["head"]["sha"] = payload["sha"]
             return {"object": {"sha": payload["sha"]}}
         if endpoint == "pulls":
@@ -310,14 +310,14 @@ class IntakeIntegrationTests(unittest.TestCase):
         self.assertEqual(self.run_process(api), "updated")
         self.assertNotEqual(api.pr["head"]["sha"], first_head)
         self.assertEqual(len([w for w in api.writes if w[:2] == ("POST", "pulls")]), 1)
-        self.assertEqual(len(api.comments), 3)
+        self.assertEqual(len(api.comments), 1)
         self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"operation": "validate", "pr_number": "99"}})
 
     def test_invalid_new_issue_has_feedback_and_no_pr(self):
         api = FakeAPI(issue_fixture(contributor_1_github_username=""))
         self.assertEqual(self.run_process(api), "invalid")
         self.assertIsNone(api.pr)
-        self.assertNotIn("git/refs", [x[1] for x in api.writes])
+        self.assertNotIn("project-submissions/issue-12", api.refs)
 
     def test_invalid_edit_blocks_previously_valid_pr(self):
         api = FakeAPI()
@@ -424,7 +424,8 @@ class BotSecurityTests(unittest.TestCase):
         base_tree = self.api.tree(BASE_SHA)
         head_tree = self.api.tree(self.api.pr["head"]["sha"])
         return validate_bot_snapshot(base_tree, head_tree, self.api.base.__getitem__, self.api.reader(head_tree), pr,
-            issue or self.api.issue, self.ctx, organization_member=True, is_sc=False)
+            issue or self.api.issue, self.ctx, organization_member=True, is_sc=False,
+            input_values=issue_intake.revisions.input_values(self.api, issue or self.api.issue, self.ctx))
 
     def test_real_generated_proposal_passes(self):
         self.check()

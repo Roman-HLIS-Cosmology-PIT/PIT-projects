@@ -13,10 +13,8 @@ from project_workflow.project_registry import Invalid, load_local_context, parse
 
 LABEL = "new-project"
 CORRECTION_LABEL = "project-correction"
-KEEP_SELECTION = "Keep previous selection"
 KEEP_VALUE = "Keep previous value"
-CORRECTION_FIELDS = {"original_issue": "Original submission Issue", "previous_issue": "Previous submission Issue",
-                     "correction_token": "Correction reference"}
+CORRECTION_NOTES_LABEL = "Changes needed"
 BRANCH_PREFIX = "project-submissions/issue-"
 BOT_LOGIN = "github-actions[bot]"
 BOT_ID = 41898282
@@ -85,9 +83,7 @@ def current_labels(ctx):
 def label_keys(ctx, *, correction=False):
     labels = current_labels(ctx)
     if correction:
-        labels.update(CORRECTION_FIELDS)
-        labels.update({"previous_" + item["id"]: "Previous selection — " + item["attributes"]["label"]
-                       for item in ctx.form_source["body"] if item.get("type") == "dropdown"})
+        labels["correction_notes"] = CORRECTION_NOTES_LABEL
     if len(set(labels.values())) != len(labels):
         raise Invalid("Form answer labels must be unique")
     return {label: key for key, label in labels.items()}
@@ -112,23 +108,18 @@ def form(ctx, *, correction=False):
         spec["name"] = "Correct or Edit Project"
         spec["description"] = "Replace a submission using the link provided by the automation."
         spec["labels"] = [CORRECTION_LABEL]
-        controls = [{"type": "input", "id": key, "attributes": {"label": label},
-                     "validations": {"required": True}} for key, label in CORRECTION_FIELDS.items()]
-        body = [{"type": "markdown", "attributes": {"value":
-            "Use the correction link from your submission. Keep the three reference fields unchanged. "
-            "For dropdowns, keep the previous selection or choose replacement values. "
-            "An empty optional text field clears that answer. A field containing **Keep previous value** "
-            "retains its earlier answer. Previous-selection boxes are for reference only."}}, *controls]
+        body = [{"type": "textarea", "id": "correction_notes",
+                 "attributes": {"label": CORRECTION_NOTES_LABEL}, "validations": {"required": False}},
+                {"type": "markdown", "attributes": {"value":
+                 "Update your answers and select each dropdown again. Leave the supplied reference at the "
+                 "end of the description unchanged. Empty optional text fields clear previous answers. "
+                 "**Keep previous value** retains a long answer that could not fit in the link."}}]
         for item in spec["body"]:
             if item.get("type") == "markdown" and item is spec["body"][0]:
                 continue
             if item.get("type") == "dropdown":
-                key = item["id"]
-                body.append({"type": "textarea", "id": "previous_" + key,
-                             "attributes": {"label": "Previous selection — " + item["attributes"]["label"]},
-                             "validations": {"required": False}})
-                item["attributes"]["options"].insert(0, KEEP_SELECTION)
-                item["attributes"]["default"] = 0
+                item["attributes"].pop("default", None)
+                item["attributes"]["description"] = "Select again for this submission."
             body.append(item)
         spec["body"] = body
     validate_form(yaml.safe_dump(spec), ctx, correction=correction)
@@ -203,8 +194,6 @@ def validate_form(text, ctx, *, correction=False):
         if default is not None and (type(default) is not int or not 0 <= default < len(options)):
             raise Invalid(f"Dropdown {key} has an invalid default index")
         for value in options:
-            if correction and value == KEEP_SELECTION:
-                continue
             if key == "working_group" and option_value(value) not in ctx.working_groups:
                 raise Invalid(f"Unknown working-group option: {value}")
             if key == "deliverable_ids":

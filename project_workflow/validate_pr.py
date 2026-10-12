@@ -244,13 +244,14 @@ def main():
                 generation_pr = True
                 validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
             else:
-                from project_workflow.revisions import active_submission
+                from project_workflow.revisions import active_submission, input_values
                 root, revision_state, issue, previous_values = active_submission(api, branch_issue(pr['head']['ref']), ctx)
                 actor = issue["user"]["login"]
                 validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
                     organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
                     is_sc=team_api.is_active_member(*ctx.sc_team, actor),
-                    original_issue=root, previous_values=previous_values)
+                    original_issue=root, previous_values=previous_values,
+                    input_values=input_values(api, issue, ctx, previous_values))
             count = len(records(head_tree, head_read, ctx))
         else:
             count = validate_snapshot(base_tree, head_tree, base_read, head_read, pr["user"]["login"], sc_lookup=team_api.is_active_member)
@@ -267,7 +268,8 @@ def main():
             validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, current, ctx,
                 organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
                 is_sc=team_api.is_active_member(*ctx.sc_team, actor),
-                original_issue=live_root, previous_values=live_previous)
+                original_issue=live_root, previous_values=live_previous,
+                input_values=input_values(api, current, ctx, live_previous))
         elif generation_pr:
             validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):

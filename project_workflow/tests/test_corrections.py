@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from project_workflow import issue_intake, revisions, validate_pr
-from project_workflow.issue_form import KEEP_SELECTION, KEEP_VALUE, form
+from project_workflow.issue_form import KEEP_VALUE, form
 from project_workflow.project_registry import Invalid, load_context, parse_yaml
 from project_workflow.submission import project_path
 from test_issue_submission import BASE_SHA, BOT, FakeAPI, Teams, issue_fixture
@@ -40,8 +40,12 @@ class CorrectionTests(unittest.TestCase):
             if item.get('type') == 'markdown':
                 continue
             key = item['id']
-            values[key] = KEEP_SELECTION if item['type'] == 'dropdown' else params.get(key, '') or '_No response_'
+            values[key] = {'kind': 'EP', 'working_group': 'SCM', 'deliverable_ids': 'SCM / SCM-001', 'phd_thesis': 'True'}[key] if item['type'] == 'dropdown' else params.get(key, '') or '_No response_'
         title = changes.pop('title', params['title'])
+        if 'summary' in changes:
+            reference = revisions.REFERENCE.search(params.get('summary', ''))
+            if reference:
+                changes['summary'] += '\n\n' + reference[0].strip()
         values.update(changes)
         issue = {**issue_fixture(), 'number': n, 'title': title, 'created_at': '2026-10-12T12:00:00Z',
                  'labels': [{'name': 'project-correction'}],
@@ -74,22 +78,29 @@ class CorrectionTests(unittest.TestCase):
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 return validate_pr.main()
 
-    def test_invalid_markers_only_on_wrong_dropdown_values_and_blank_paired_field(self):
+    def test_error_feedback_has_full_summary_and_form_has_only_concise_corrections(self):
         self.api.issue = issue_fixture(deliverable_ids='SCM / SCM-001, CAS / CAS-001', contributor_1_github_username='')
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
-        self.assertEqual(params['previous_deliverable_ids'], 'Previous selection:\nSCM-001\nCAS-001 🔴')
-        self.assertEqual(params['previous_working_group'], 'Previous selection:\nSCM')
-        self.assertEqual(params['contributor_1_github_username'], '🔴')
+        self.assertEqual(set(params) & {'original_issue', 'previous_issue', 'correction_token', 'previous_kind', 'previous_deliverable_ids'}, set())
         self.assertNotIn('🔴', params['summary'])
-        self.assertIn('invalid', {x['name'] for x in self.api.issue['labels']})
-        self.replacement(params, deliverable_ids='SCM / SCM-001', contributor_1_github_username='bob')
+        self.assertIn('Deliverables:', params['correction_notes'])
+        self.assertIn('CAS-001 does not belong to SCM', params['correction_notes'])
+        self.assertIn('Contributor 1 GitHub username:', params['correction_notes'])
+        self.assertNotIn('Working group:', params['correction_notes'])
+        body = self.api.comments[0]['body']
+        self.assertIn('**Project title**:', body)
+        self.assertIn('CAS-001 — Other deliverable 🔴', body)
+        self.assertNotIn('SCM-001 — Test deliverable 🔴', body)
+        self.assertEqual(len(self.api.comments), 1)
+        self.replacement(params, contributor_1_github_username='bob')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.api.issue['state'], 'closed')
         self.assertEqual(self.record()['project_id'], 'P000012')
         self.assertEqual(self.record()['submission']['submitted_at'], '2026-10-11T06:00:00Z')
         self.assertEqual(self.record()['submission']['original_issue_number'], 12)
         self.assertEqual(self.record()['submission']['issue_number'], 13)
+        self.assertNotIn('pit-correction:', self.record()['summary'])
         self.assertEqual(self.policy(), 0)
         self.assertIn('Closes #13', self.api.pr['body'])
 
@@ -123,7 +134,7 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.api.statuses[-1][1], 'failure')
         self.assertEqual(self.policy(), 1)
         params = self.params(13)
-        self.assertEqual(params['previous_kind'], 'Previous selection:\nKEY 🔴')
+        self.assertIn('Project kind:', params['correction_notes'])
         self.replacement(params, n=14, kind='EP')
         self.assertEqual(self.process(14), 'updated')
         self.assertEqual(self.record()['submission']['issue_number'], 14)
@@ -131,15 +142,21 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.policy(), 0)
         self.assertEqual(self.api.other_issues[13]['state'], 'closed')
 
-    def test_previous_guidance_cannot_change_preserved_answers(self):
+    def test_guidance_cannot_change_answers_and_dropdowns_must_be_selected_again(self):
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.replacement(params, previous_deliverable_ids='CAS-001', previous_kind='KEY', previous_working_group='CAS')
-        self.assertEqual(self.process(13), 'updated')
+        self.assertEqual(params['correction_notes'], '')
+        self.assertNotIn('kind', params)
+        self.assertNotIn('working_group', params)
+        self.assertNotIn('deliverable_ids', params)
+        self.replacement(params, correction_notes='Change to KEY / CAS', working_group='_No response_')
+        self.assertEqual(self.process(13), 'invalid')
+        self.assertEqual(self.api.statuses[-1][1], 'failure')
+        self.replacement(self.params(13), n=14)
+        self.assertEqual(self.process(14), 'updated')
         self.assertEqual(self.record()['kind'], 'EP')
         self.assertEqual(self.record()['working_group'], 'SCM')
-        self.assertEqual(self.record()['deliverable_ids'], ['SCM-001'])
 
     def test_unauthorized_or_stale_corrections_do_not_change_the_proposal(self):
         self.process()
@@ -150,8 +167,10 @@ class CorrectionTests(unittest.TestCase):
             if change == 'author':
                 issue['user'] = {'id': 999, 'login': 'mallory', 'type': 'User'}
             else:
-                target = {'token': 'correction_token', 'original': 'original_issue', 'previous': 'previous_issue'}[change]
-                issue['body'] = issue['body'].replace('### ' + revisions.CORRECTION_FIELDS[target] + '\n\n' + params[target], '### ' + revisions.CORRECTION_FIELDS[target] + '\n\n' + ('999999999999' if change != 'token' else 'x'*32))
+                root, previous, token = revisions.references(issue, self.ctx)
+                modified = revisions.reference_comment(999999 if change == 'original' else root,
+                    999999 if change == 'previous' else previous, 'x'*32 if change == 'token' else token)
+                issue['body'] = revisions.REFERENCE.sub('\n\n' + modified, issue['body']) if revisions.REFERENCE.search(issue['body']) else issue['body'].replace(revisions.reference_comment(root, previous, token), modified)
             statuses = deepcopy(self.api.statuses)
             head = self.api.pr['head']['sha']
             self.assertEqual(self.process(13), 'rejected-correction')
@@ -178,19 +197,12 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.command(user={'id': 999, 'login': 'mallory', 'type': 'User'}), 'ignored-command')
         self.assertIsNone(revisions.read_state(self.api, 12)['request'])
 
-    def test_multiple_keep_and_replacement_dropdown_choices_are_invalid(self):
-        self.process()
-        self.command()
-        self.replacement(self.params(marker='<!-- pit-project-edit:v1 -->'), deliverable_ids=KEEP_SELECTION + ', SCM / SCM-001')
-        self.assertEqual(self.process(13), 'invalid')
-        self.assertEqual(self.api.statuses[-1][1], 'failure')
-
     def test_long_answers_are_preserved_and_optional_blank_clears(self):
         self.api.issue = issue_fixture(summary='Scientific description. '*1500)
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(params['summary'], KEEP_VALUE)
+        self.assertEqual(revisions.strip_reference(params['summary']), KEEP_VALUE)
         original = self.record()['summary']
         self.replacement(params, slack_channel='_No response_', related_links='_No response_')
         self.assertEqual(self.process(13), 'updated')
@@ -217,7 +229,8 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(len([w for w in self.api.writes if w[:2] == ('POST', 'pulls')]), 1)
         self.assertEqual(self.policy(), 0)
 
-    def test_edited_previous_issue_or_forged_state_blocks_policy(self):
+    def test_edited_previous_issue_or_missing_state_blocks_policy(self):
+        from project_workflow.workflow_state import BRANCH
         self.process()
         self.command()
         self.replacement(self.params(marker='<!-- pit-project-edit:v1 -->'))
@@ -225,28 +238,29 @@ class CorrectionTests(unittest.TestCase):
         self.api.issue['title'] = 'Changed superseded Issue'
         self.assertEqual(self.policy(), 1)
         self.api.issue['title'] = 'Shape measurement validation'
-        state = next(c for c in self.api.comments if c['body'].startswith(revisions.STATE_MARKER))
-        state['user'] = {'login': 'mallory', 'id': 999, 'type': 'User'}
+        del self.api.refs[BRANCH]
         self.assertEqual(self.policy(), 1)
 
     def test_missing_answer_heading_can_be_recovered_using_a_replacement_form(self):
         self.api.issue['body'] = self.api.issue['body'].replace('### Description', '### Wrong heading')
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
-        self.assertEqual(params['summary'], '🔴')
+        self.assertEqual(revisions.strip_reference(params['summary']), '')
         self.replacement(params, summary='Recovered description', kind='EP')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.record()['summary'], 'Recovered description')
 
-    def test_activated_issue_cannot_be_redirected_by_editing_reference_boxes(self):
+    def test_edited_formatted_body_cannot_silently_change_the_project(self):
         self.process()
-        self.command()
-        self.replacement(self.params(marker='<!-- pit-project-edit:v1 -->'))
-        self.process(13)
-        issue = self.api.other_issues[13]
-        issue['body'] = issue['body'].replace('### Original submission Issue\n\n12', '### Original submission Issue\n\n999')
+        head = self.api.pr['head']['sha']
+        self.api.issue['body'] = self.api.issue['body'].replace('**Working group**: SCM', '**Working group**: CAS')
+        self.assertEqual(self.policy(), 1)
+        self.assertEqual(self.process(), 'invalid')
+        self.assertEqual(self.api.pr['head']['sha'], head)
+        params = self.params()
+        self.assertIn('replacement form', params['correction_notes'])
+        self.replacement(params)
         self.assertEqual(self.process(13), 'updated')
-        self.assertEqual(self.api.pr['head']['ref'], 'project-submissions/issue-12')
         self.assertEqual(self.policy(), 0)
 
     def test_label_removal_and_missing_credentials_block_active_replacement(self):
@@ -269,6 +283,35 @@ class CorrectionTests(unittest.TestCase):
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(issue_intake.main(), 1)
         self.assertEqual(self.api.statuses[-1][1], 'failure')
+
+    def test_interrupted_issue_formatting_recovers_without_duplicate_pr_or_feedback(self):
+        original = self.api.request
+        def interrupted(method, endpoint, payload):
+            if method == 'PATCH' and endpoint == 'issues/12' and 'body' in payload:
+                raise OSError('Interrupted between storing answers and updating the display')
+            return original(method, endpoint, payload)
+        self.api.request = interrupted
+        with self.assertRaises(OSError):
+            self.process()
+        self.assertIsNone(self.api.pr)
+        self.api.request = original
+        self.assertEqual(self.process(), 'created')
+        self.assertEqual(self.process(), 'updated')
+        self.assertEqual(len(self.api.comments), 1)
+        self.assertEqual(len([w for w in self.api.writes if w[:2] == ('POST', 'pulls')]), 1)
+        self.assertEqual(self.policy(), 0)
+
+    def test_copying_a_formatted_issue_does_not_forge_an_answer_receipt(self):
+        from project_workflow.review import FORMATTED_MARKER
+        self.api.issue['body'] = FORMATTED_MARKER + '\n**Project kind**: KEY\n'
+        self.assertEqual(self.process(), 'invalid')
+        self.assertIsNone(self.api.pr)
+
+    def test_nonmember_does_not_create_automation_state(self):
+        from project_workflow.workflow_state import BRANCH
+        self.assertEqual(issue_intake.process(self.api, Teams(member=False), 12, repo_check=lambda _: None), 'invalid')
+        self.assertNotIn(BRANCH, self.api.refs)
+        self.assertIsNone(self.api.pr)
 
 
 if __name__ == '__main__':

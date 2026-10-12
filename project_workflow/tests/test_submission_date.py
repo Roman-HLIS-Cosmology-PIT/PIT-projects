@@ -60,7 +60,8 @@ class SubmissionDateTests(unittest.TestCase):
         base_tree, head_tree = self.api.tree(BASE_SHA), self.api.tree(self.api.pr["head"]["sha"])
         with self.assertRaises(Invalid):
             validate_bot_snapshot(base_tree, head_tree, self.api.reader(base_tree), self.api.reader(head_tree),
-                                  self.api.pr, self.api.issue, self.ctx, organization_member=True, is_sc=False)
+                                  self.api.pr, self.api.issue, self.ctx, organization_member=True, is_sc=False,
+                                  input_values=issue_intake.revisions.input_values(self.api, self.api.issue, self.ctx))
 
     def test_creation_time_is_part_of_freshness_check(self):
         changed = {**self.api.issue, "created_at": "2026-10-10T06:00:00Z"}

@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from project_workflow.issue_form import (LABEL, CORRECTION_LABEL, KEEP_SELECTION, KEEP_VALUE, BRANCH_PREFIX,
+from project_workflow.issue_form import (LABEL, CORRECTION_LABEL, KEEP_VALUE, BRANCH_PREFIX,
     BOT_LOGIN, BOT_ID, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys)
 from project_workflow.project_registry import Invalid, USERNAME, authorize_change, utc_timestamp, validate_record
 
@@ -94,35 +94,19 @@ def optional(value):
     return "" if value.strip() in {"", "_No response_", "None"} else value.strip()
 
 
-def unmark(value):
-    """Remove only the standalone/prefixed/suffixed guidance marker."""
-    if value.strip() == "🔴":
-        return ""
-    if value.startswith("🔴\n"):
-        value = value[2:]
-    return "\n".join(line.removesuffix(" 🔴") for line in value.splitlines())
-
-
 def resolved_values(issue, ctx, previous_values=None, *, require_fields=True):
     correction = correction_issue(issue)
     values = answers(issue.get("body"), ctx, correction=correction, require_fields=require_fields)
     if correction:
         if previous_values is None:
             raise Invalid("Use a correction link provided on your existing submission")
-        for item in ctx.form_source["body"]:
-            key = item.get("id")
-            if key not in values:
-                continue
-            if item.get("type") == "dropdown":
-                chosen = [x.strip() for x in values[key].split(",") if x.strip()]
-                if KEEP_SELECTION in chosen:
-                    if chosen == [KEEP_SELECTION]:
-                        values[key] = previous_values.get(key, "")
-            else:
-                values[key] = unmark(values[key])
-                if values[key] == KEEP_VALUE:
-                    values[key] = previous_values.get(key, "")
-    values["name"] = unmark(issue.get("title") or "") if correction else issue.get("title") or ""
+        from project_workflow.revisions import strip_reference
+        values['summary'] = strip_reference(values.get('summary', ''))
+        for item in ctx.form_source['body']:
+            key = item.get('id')
+            if key in values and item.get('type') in {'input', 'textarea'} and values[key] == KEEP_VALUE:
+                values[key] = previous_values.get(key, '')
+    values["name"] = issue.get("title") or ""
     return values
 
 
@@ -145,20 +129,31 @@ def https_url(value):
         raise Invalid("Related links must be complete HTTPS URLs without embedded credentials, one per line")
 
 
-def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, previous_values=None):
+def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, previous_values=None, input_values=None):
     if issue.get("pull_request") or issue.get("state") != "open" or not labelled(issue):
         raise Invalid("Submission Issue must be open and have its submission label")
     if not organization_member:
         raise Invalid("The Issue author must be an active organization member")
     actor = issue["user"]["login"]
-    values = resolved_values(issue, ctx, previous_values)
+    if input_values is None:
+        values = resolved_values(issue, ctx, previous_values)
+    else:
+        values = dict(input_values)
+        values['name'] = issue.get('title') or ''
+        expected = set(current_labels(ctx)) - {key for key in current_labels(ctx) if CONTRIBUTOR_FIELD.fullmatch(key)}
+        missing = expected - set(values)
+        if missing:
+            raise Invalid('Complete the missing fields', fields=missing)
     original_issue = original_issue or issue
     root_number = original_issue["number"]
     labels = {"name": "Project title", **current_labels(ctx)}
     errors, bad_fields, bad_selections = [], set(), {}
+    corrections = {}
     def fail(message, *keys):
         errors.append(message)
         bad_fields.update(keys)
+        for key in keys:
+            corrections.setdefault(key, []).append(message)
     for key in ("name", "kind", "working_group", "summary", "phd_thesis", "deliverable_ids"):
         values[key] = optional(values[key])
         if not values[key]:
@@ -166,10 +161,14 @@ def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, pre
     contributors, contributor_slots = [], []
     slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
     for i in slots:
+        pair = {f'contributor_{i}_name', f'contributor_{i}_github_username'}
+        if pair - set(values):
+            raise Invalid('Complete the contributor name/username pair', fields=pair - set(values))
         name = optional(values[f"contributor_{i}_name"])
         username = optional(values[f"contributor_{i}_github_username"])
         if bool(name) != bool(username):
-            fail(f"Contributor {i}: fill both name and GitHub username, or leave both blank", f"contributor_{i}_name", f"contributor_{i}_github_username")
+            fail(f"Fill both contributor name and GitHub username, or leave both blank",
+                 f"contributor_{i}_github_username" if name else f"contributor_{i}_name")
         elif name:
             contributors.append({"name": name, "github_username": username})
             contributor_slots.append(i)
@@ -182,7 +181,7 @@ def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, pre
             bad_selections.setdefault("related_links", []).append(link)
     if len(set(links)) != len(links):
         fail("Related links: remove repeated URLs", "related_links")
-        bad_selections["related_links"] = [x for x in links if links.count(x) > 1]
+        bad_selections.setdefault('related_links', []).extend(x for x in links if links.count(x) > 1)
     lead_username = optional(values["lead_github_username"])
     if lead_username and (len(lead_username) > 39 or not USERNAME.fullmatch(lead_username)):
         fail("Project lead GitHub username: enter one valid GitHub username without @ or a profile URL", "lead_github_username")
@@ -204,8 +203,7 @@ def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, pre
     for selection in selected:
         pair = deliverable_value(selection, wg)
         if pair[0] != wg or pair[1] not in ctx.deliverables.get(wg, set()):
-            fail("Deliverables: select IDs from the chosen working group. Valid choices: " +
-                          ", ".join(sorted(ctx.deliverables.get(wg, set()))), "deliverable_ids")
+            fail(f"{pair[1]} does not belong to {wg}. Select a deliverable from your chosen working group.", "deliverable_ids")
             bad_selections.setdefault("deliverable_ids", []).append(selection)
         else:
             ids.append(pair[1])
@@ -224,9 +222,9 @@ def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, pre
         fail("A member must submit a new project with themselves as its lead", "lead_github_username")
     if len(set(ids)) != len(ids):
         fail("Remove repeated deliverables", "deliverable_ids")
-        bad_selections["deliverable_ids"] = [s for s in selected if ids.count(deliverable_value(s, wg)[1]) > 1]
+        bad_selections.setdefault('deliverable_ids', []).extend(s for s in selected if ids.count(deliverable_value(s, wg)[1]) > 1)
     if errors:
-        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields, selections=bad_selections)
+        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields, selections=bad_selections, corrections=corrections)
     record = {
         "schema_version": ctx.schema["properties"]["schema_version"]["const"], "project_id": project_id(root_number),
         "name": values["name"], "kind": option_value(values["kind"]),
@@ -254,9 +252,17 @@ def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, pre
         key = path[0] if path else "name"
         if key == "contributors" and len(path) > 2:
             key = f"contributor_{contributor_slots[path[1]]}_{path[2]}"
-        fail("A submitted field fails schema constraint " + error.validator, key)
+        guidance = {'minLength': 'Enter a non-empty value.',
+                    'maxLength': f'Use at most {error.validator_value} characters.',
+                    'maxItems': f'Use at most {error.validator_value} entries.',
+                    'uniqueItems': 'Remove repeated entries.',
+                    'enum': 'Choose one of the offered options.',
+                    'pattern': 'Use a value in the required format.',
+                    'type': 'Use a value in the required format.',
+                    'anyOf': 'Use a value in the required format.'}.get(error.validator, 'Complete or correct this answer.')
+        fail(guidance, key)
     if errors:
-        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields)
+        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields, corrections=corrections)
     validate_record(record, project_path(root_number), ctx)
     authorize_change(None, record, actor, ctx, organization_member=organization_member, is_sc=is_sc)
     return record
@@ -285,7 +291,7 @@ def changed_files(base_tree, head_tree):
 
 
 def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc,
-                          original_issue=None, previous_values=None):
+                          original_issue=None, previous_values=None, input_values=None):
     root = original_issue or issue
     if not is_submission_bot(pr["user"]) or branch_issue(pr["head"]["ref"]) != root["number"]:
         raise Invalid("Automated PR must be authored by GitHub Actions and bound to its submission Issue")
@@ -295,7 +301,7 @@ def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue,
     if changed_files(base_tree, head_tree) != {path}:
         raise Invalid("Automated PR may add only the single project file associated with its Issue")
     expected = proposal(issue, ctx, organization_member=organization_member, is_sc=is_sc,
-                        original_issue=root, previous_values=previous_values)
+                        original_issue=root, previous_values=previous_values, input_values=input_values)
     from project_workflow.project_registry import parse_yaml
     if parse_yaml(head_read(path)) != expected:
         raise Invalid("PR data differs from the current Issue. Save the Issue to regenerate the proposal")

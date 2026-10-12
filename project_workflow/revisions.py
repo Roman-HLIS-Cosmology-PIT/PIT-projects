@@ -1,6 +1,7 @@
-"""Authenticated replacement Issues and URL-prefilled forms; no submitted code."""
+"""Authenticated replacement Issues; formatting and state stay separate."""
 from __future__ import annotations
 
+import base64
 from copy import deepcopy
 import hashlib
 import json
@@ -8,194 +9,217 @@ import re
 import secrets
 from urllib.parse import urlencode
 
-from project_workflow.issue_form import (CORRECTION_FIELDS, KEEP_VALUE, current_labels, deliverable_value,
-                                        option_value)
+from project_workflow.issue_form import KEEP_VALUE, current_labels
 from project_workflow.project_registry import Invalid
-from project_workflow.submission import (answers, correction_issue, is_submission_bot, number, optional,
-                                         resolved_values)
+from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version
+from project_workflow import workflow_state
+from project_workflow.review import FORMATTED_MARKER, summary_body
 
-STATE_MARKER = "<!-- pit-project-revisions:v1 -->"
-ROUTE_MARKER = "<!-- pit-project-revision-root:v1 -->"
 MAX_REVISIONS = 100
 MAX_URL_LENGTH = 7500
+REFERENCE = re.compile(r"(?:\n\n)?<!-- pit-correction:([A-Za-z0-9_-]{20,600}) -->\s*$")
 
 
-def json_body(marker, payload, message):
-    return marker + '\n<!-- ' + json.dumps(payload, sort_keys=True, separators=(',', ':')) + ' -->\n\n' + message
-
-
-def marked_json(body, marker):
-    encoded = body[len(marker):].strip().splitlines()[0]
-    if not encoded.startswith('<!-- ') or not encoded.endswith(' -->'):
-        raise Invalid('The authenticated automation record is malformed')
-    return json.loads(encoded[5:-4])
+def digest(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
 def content_hash(issue):
-    data = [issue.get("title"), issue.get("body"), issue["user"].get("id"),
-            issue["user"].get("login"), issue.get("created_at")]
-    return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
+    data = [issue.get('title'), issue.get('body'), issue['user'].get('id'), issue['user'].get('login'), issue.get('created_at')]
+    return digest(json.dumps(data, ensure_ascii=False))
 
 
 def same_author(left, right):
-    return (type(left["user"].get("id")) is int and left["user"]["id"] == right["user"].get("id")
-            and left["user"]["login"].lower() == right["user"]["login"].lower())
-
-
-def state_comment(api, root_number):
-    matches = [c for c in api.pages(f"issues/{number(root_number)}/comments")
-               if is_submission_bot(c["user"]) and c.get("body", "").startswith(STATE_MARKER)]
-    if len(matches) > 1:
-        raise Invalid("Multiple revision records exist; ask SC to resolve them")
-    return matches[0] if matches else None
+    return (type(left['user'].get('id')) is int and left['user']['id'] == right['user'].get('id')
+            and left['user']['login'].lower() == right['user']['login'].lower())
 
 
 def read_state(api, root_number):
-    comment = state_comment(api, root_number)
-    if comment is None:
-        raise Invalid("No authenticated submission history exists; ask SC to retry the original Issue")
+    state = workflow_state.read(api, workflow_state.root_path(root_number))
     try:
-        state = marked_json(comment['body'], STATE_MARKER)
-        history = state["history"]
-        if (state["root"] != root_number or not isinstance(history, list) or not 1 <= len(history) <= MAX_REVISIONS
-                or history[0]["number"] != root_number or len({e["number"] for e in history}) != len(history)):
+        history = state['history']
+        if (state['root'] != root_number or type(state['author_id']) is not int or not isinstance(history, list)
+                or not 1 <= len(history) <= MAX_REVISIONS or history[0]['number'] != root_number
+                or len({e['number'] for e in history}) != len(history)):
             raise ValueError()
         for entry in history:
-            number(entry["number"])
+            number(entry['number'])
     except (ValueError, KeyError, TypeError) as exc:
-        raise Invalid("The authenticated revision history is malformed; ask SC to inspect it") from exc
+        raise Invalid('Authenticated submission history is missing or malformed; retry the original submission') from exc
     return state
 
 
 def write_state(api, state):
-    comment = state_comment(api, state["root"])
-    body = json_body(STATE_MARKER, state,
-                     f"Latest submission: https://github.com/{api.repo}/issues/{latest_number(state)}")
-    if len(body) > 64000:
-        raise Invalid("Revision history exceeds GitHub's comment limit")
-    if comment:
-        if comment["body"] != body:
-            api.request("PATCH", f"issues/comments/{comment['id']}", {"body": body})
-    else:
-        api.request("POST", f"issues/{state['root']}/comments", {"body": body})
+    workflow_state.write(api, {workflow_state.root_path(state['root']): state})
 
 
 def ensure_state(api, root):
-    if state_comment(api, root["number"]) is None:
-        write_state(api, {"root": root["number"], "author_id": root["user"]["id"],
-                          "history": [{"number": root["number"]}], "request": None})
-    return read_state(api, root["number"])
+    if workflow_state.read(api, workflow_state.root_path(root['number'])) is None:
+        workflow_state.write(api, {
+            workflow_state.root_path(root['number']): {'root': root['number'], 'author_id': root['user']['id'],
+                'history': [{'number': root['number']}], 'request': None},
+            workflow_state.issue_path(root['number']): {'root': root['number'], 'author_id': root['user']['id']}})
+    return read_state(api, root['number'])
+
+
+def reference_comment(root, previous, token):
+    data = json.dumps({'root': root, 'previous': previous, 'token': token}, sort_keys=True, separators=(',', ':')).encode()
+    encoded = base64.urlsafe_b64encode(data).decode().rstrip('=')
+    return '<!-- pit-correction:' + encoded + ' -->'
+
+
+def strip_reference(text):
+    return REFERENCE.sub('', text).strip()
 
 
 def references(issue, ctx):
-    values = answers(issue.get("body"), ctx, correction=True, require_fields=False)
+    values = answers(issue.get('body'), ctx, correction=True, require_fields=False)
+    match = REFERENCE.search(values.get('summary', ''))
     try:
-        root = number(int(values["original_issue"]))
-        previous = number(int(values["previous_issue"]))
-        token = values["correction_token"]
-        if not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", token):
+        if match is None:
             raise ValueError()
-    except (KeyError, ValueError, TypeError) as exc:
-        raise Invalid("Use the correction link provided on your existing submission") from exc
-    return root, previous, token
+        encoded = match[1]
+        data = json.loads(base64.b64decode(encoded + '=' * (-len(encoded) % 4), altchars=b'-_', validate=True))
+        if set(data) != {'root', 'previous', 'token'} or not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', data['token']):
+            raise ValueError()
+        return number(data['root']), number(data['previous']), data['token']
+    except (ValueError, KeyError, TypeError) as exc:
+        raise Invalid('Use the supplied correction link and retain the reference at the end of the description') from exc
+
+
+def routed_root(api, issue):
+    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    if packet is None:
+        return None
+    if packet.get('author_id') != issue['user'].get('id'):
+        raise Invalid('Submission receipt does not match its GitHub author')
+    return number(packet['root'])
+
+
+def input_values(api, issue, ctx, previous_values=None):
+    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    if (issue.get('body') or '').startswith(FORMATTED_MARKER):
+        if (packet is None or packet.get('author_id') != issue['user'].get('id')
+                or packet.get('body_sha256') != digest(issue['body']) or not isinstance(packet.get('values'), dict)):
+            raise Invalid('The formatted Issue was edited. Use the replacement form to change its answers.', fields={'summary'},
+                          corrections={'summary': ['Use the replacement form to change the submitted answers.']})
+        values = deepcopy(packet['values'])
+        if any(not isinstance(k, str) or not isinstance(v, str) for k, v in values.items()):
+            raise Invalid('Submission receipt contains unsupported answer types')
+        values['name'] = issue.get('title') or ''
+        return values
+    return resolved_values(issue, ctx, previous_values, require_fields=False)
+
+
+def saved_values(api, issue):
+    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    if packet is None or packet.get('author_id') != issue['user'].get('id') or not isinstance(packet.get('values'), dict):
+        raise Invalid('The previous answers could not be recovered')
+    values = deepcopy(packet['values'])
+    values['name'] = issue.get('title') or ''
+    return values
+
+
+def format_issue(api, issue, root, ctx, previous_values=None):
+    values = input_values(api, issue, ctx, previous_values)
+    values.pop('correction_notes', None)
+    body = FORMATTED_MARKER + '\n' + summary_body(values, ctx)
+    if len(body) > 64000:
+        body = body[:62000] + '\n\n*Display shortened to fit GitHub. Complete answers are retained by the workflow.*\n'
+    packet = {'root': root['number'], 'author_id': issue['user']['id'], 'values': values, 'body_sha256': digest(body)}
+    workflow_state.write(api, {workflow_state.issue_path(issue['number']): packet})
+    current = api.get(f"issues/{issue['number']}")
+    if issue_version(current) != issue_version(issue):
+        raise Invalid('The Issue changed before formatting; retry')
+    if current['body'] != body:
+        api.request('PATCH', f"issues/{issue['number']}", {'body': body})
+    current = api.get(f"issues/{issue['number']}")
+    if current['body'] != body or current['title'] != issue['title'] or not same_author(current, issue):
+        raise Invalid('The Issue changed during formatting; retry')
+    return current, values
 
 
 def active_submission(api, root_number, ctx):
-    """Resolve prior answers only from authenticated Issues, never guidance boxes."""
-    root = api.get(f"issues/{number(root_number)}")
-    if root.get("pull_request") or correction_issue(root):
-        raise Invalid("Original submission must be a New Project Issue")
+    root = api.get(f'issues/{number(root_number)}')
+    if root.get('pull_request') or correction_issue(root):
+        raise Invalid('Original submission must be a New Project Issue')
     state = read_state(api, root_number)
-    if state.get("author_id") != root["user"].get("id"):
-        raise Invalid("Original submitter identity changed")
+    if state['author_id'] != root['user'].get('id'):
+        raise Invalid('Original submitter identity changed')
     previous_values = None
     active = root
-    for i, entry in enumerate(state["history"]):
+    for i, entry in enumerate(state['history']):
         current = root if i == 0 else api.get(f"issues/{entry['number']}")
-        if current.get("pull_request") or not same_author(root, current):
-            raise Invalid("Every replacement must be authored by the original submitter")
-        if entry.get("frozen_hash") and content_hash(current) != entry["frozen_hash"]:
-            raise Invalid("A superseded submission was edited; ask SC to restore it and retry")
-        # References are checked when the Issue enters trusted history. Later
-        # edits to those text boxes cannot redirect an activated Issue.
+        if current.get('pull_request') or not same_author(root, current):
+            raise Invalid('Every replacement must be authored by the original submitter')
+        if entry.get('frozen_hash') and content_hash(current) != entry['frozen_hash']:
+            raise Invalid('A superseded submission was edited; ask SC to restore it and retry')
         if i < len(state['history']) - 1:
-            previous_values = resolved_values(current, ctx, previous_values, require_fields=False)
+            # A manually edited formatted Issue may itself be the invalid
+            # source being replaced. Its authenticated saved answers remain
+            # the source for retained long values; edited display text is not.
+            previous_values = saved_values(api, current)
         active = current
     return root, state, active, previous_values
 
 
-def routed_root(api, issue):
-    comments = [c for c in api.pages(f"issues/{issue['number']}/comments")
-                if is_submission_bot(c['user']) and c.get('body', '').startswith(ROUTE_MARKER)]
-    if not comments:
-        return None
-    if len(comments) != 1:
-        raise Invalid('Multiple authenticated Issue routes exist')
-    try:
-        return number(marked_json(comments[0]['body'], ROUTE_MARKER)['root'])
-    except (ValueError, KeyError, TypeError) as exc:
-        raise Invalid('The authenticated Issue route is malformed') from exc
-
-
 def latest_number(state):
-    return state["history"][-1]["number"]
+    return state['history'][-1]['number']
+
+
+def correction_notes(ctx, error):
+    if error is None:
+        return ''
+    labels = {'name': 'Project title', **current_labels(ctx)}
+    lines = []
+    for key in labels:
+        if key not in error.fields:
+            continue
+        messages = error.corrections.get(key, [])
+        if not messages:
+            messages = ['Complete or correct this answer.']
+        text = ' '.join(dict.fromkeys(messages))
+        label = labels[key]
+        if text.startswith(label + ': '):
+            text = text[len(label) + 2:]
+        lines.append(label + ': ' + text)
+    if not lines:
+        lines = str(error).splitlines()
+    return '\n'.join(lines)
 
 
 def correction_link(api, root, state, issue, values, ctx, *, error=None):
-    """Persist a version-bound reference, then prefill text values using field IDs."""
-    request = state.get("request")
-    mode = "correction" if error is not None else "edit"
+    request = state.get('request')
+    mode = 'correction' if error is not None else 'edit'
     version = content_hash(issue)
-    if not request or request["source"] != issue["number"] or request["hash"] != version or request["mode"] != mode:
-        request = {"source": issue["number"], "hash": version, "mode": mode, "token": secrets.token_urlsafe(24)}
+    if not request or request['source'] != issue['number'] or request['hash'] != version or request['mode'] != mode:
+        request = {'source': issue['number'], 'hash': version, 'mode': mode, 'token': secrets.token_urlsafe(24)}
         state = deepcopy(state)
-        state["request"] = request
+        state['request'] = request
         write_state(api, state)
-    params = {"template": "correct-project.yml", "title": values.get("name", issue.get("title", "")),
-              "original_issue": str(root["number"]), "previous_issue": str(issue["number"]),
-              "correction_token": request["token"]}
-    fields = error.fields if error else set()
-    selections = error.selections if error else {}
-    if "name" in fields:
-        params["title"] += " 🔴"
-    for item in ctx.form_source["body"]:
-        key = item.get("id")
-        if not key:
-            continue
-        value = optional(values.get(key, ""))
-        if item["type"] == "dropdown":
-            rows = [x.strip() for x in value.split(",") if x.strip()] or [""]
-            text = []
-            for row in rows:
-                display = deliverable_value(row, None)[1] if key == "deliverable_ids" else option_value(row)
-                bad = key in fields and (not selections.get(key) or row in selections[key])
-                text.append(display + (" 🔴" if bad else ""))
-            params["previous_" + key] = "Previous selection:\n" + "\n".join(text)
-        else:
-            if key in fields:
-                if selections.get(key):
-                    value = "\n".join(row + (" 🔴" if row.strip() in selections[key] else "") for row in value.splitlines())
-                elif "\n" in value:
-                    value = "🔴\n" + value
-                else:
-                    value += " 🔴" if value else "🔴"
-            params[key] = value
-    prefix = f"https://github.com/{api.repo}/issues/new?"
+    params = {'template': 'correct-project.yml', 'title': values.get('name', issue.get('title', '')),
+              'correction_notes': correction_notes(ctx, error)}
+    for item in ctx.form_source['body']:
+        key = item.get('id')
+        if key and item.get('type') in {'input', 'textarea'}:
+            params[key] = optional(values.get(key, ''))
+    suffix = '\n\n' + reference_comment(root['number'], issue['number'], request['token'])
+    params['summary'] = params.get('summary', '') + suffix
+    prefix = f'https://github.com/{api.repo}/issues/new?'
     url = prefix + urlencode(params)
     omitted = []
-    # Native GitHub links have finite length. Preserve omitted answers through
-    # an explicit sentinel resolved server-side against the previous Issue.
     candidates = sorted((k for k in current_labels(ctx) if k in params), key=lambda k: len(params[k]), reverse=True)
     for key in candidates:
         if len(url) <= MAX_URL_LENGTH:
             break
-        if len(params[key]) <= len(KEEP_VALUE) + 4:
+        value_suffix = suffix if key == 'summary' else ''
+        if len(params[key]) <= len(KEEP_VALUE) + len(value_suffix):
             continue
-        params[key] = KEEP_VALUE + (" 🔴" if key in fields else "")
+        params[key] = KEEP_VALUE + value_suffix
         omitted.append(current_labels(ctx)[key])
         url = prefix + urlencode(params)
     if len(url) > MAX_URL_LENGTH:
-        raise Invalid("The correction link is too large; ask SC to inspect this submission")
+        raise Invalid('The correction link is too large; ask SC to inspect this submission')
     return url, omitted
 
 
@@ -222,7 +246,8 @@ def receive_revision(api, issue, root, state, ctx):
     state["history"][-1]["frozen_hash"] = content_hash(source)
     state["history"].append({"number": issue["number"], "token": token})
     state["request"] = None
-    write_state(api, state)
+    workflow_state.write(api, {workflow_state.root_path(root['number']): state,
+                               workflow_state.issue_path(issue['number']): {'root': root['number'], 'author_id': issue['user']['id']}})
     return state
 
 

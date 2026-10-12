@@ -20,12 +20,11 @@ from project_workflow.submission import (
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
-from project_workflow.review import proposal_body, request_review, safe_text
+from project_workflow.review import proposal_body, request_review, safe_text, summary_body
 from project_workflow import revisions
 from project_workflow.submission import correction_issue, resolved_values
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
-ACK_MARKER = "<!-- pit-project-submission-received:v1 -->"
 
 
 def feedback(api, issue_number, message, *, marker=COMMENT_MARKER):
@@ -37,13 +36,6 @@ def feedback(api, issue_number, message, *, marker=COMMENT_MARKER):
             api.request("PATCH", f"issues/comments/{previous[0]['id']}", {"body": body})
     else:
         api.request("POST", f"issues/{issue_number}/comments", {"body": body})
-
-
-def acknowledge(api, issue):
-    if issue.get("state") == "open" and labelled(issue) and not issue.get("pull_request"):
-        feedback(api, issue["number"], "**Your project proposal has been submitted and is awaiting validation.** "
-                 "Another message will confirm whether it is valid or explain any corrections needed. "
-                 "Validation is not project acceptance.", marker=ACK_MARKER)
 
 
 def associated_pr(api, issue_number):
@@ -101,7 +93,8 @@ def fresh(api, issue, base_sha, ctx, teams, root, state):
         raise Invalid("The active revision changed during processing; retry")
     member, sc = authenticate(current, ctx, teams, api.repo)
     return proposal(current, ctx, organization_member=member, is_sc=sc,
-                    original_issue=root, previous_values=previous_values)
+                    original_issue=root, previous_values=previous_values,
+                    input_values=revisions.input_values(api, current, ctx, previous_values))
 
 
 def process_active(api, teams, issue, root, state, previous_values, *, repo_check=repository_warning):
@@ -110,7 +103,6 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
     pr = associated_pr(api, root_number)
     if pr and pr.get("merged_at"):
         return "already-merged"
-    acknowledge(api, issue)
     if pr and pr["state"] == "closed":
         feedback(api, issue_number, "**The previous proposal PR was closed without merging.** Ask SC to reopen that PR before continuing. No duplicate PR was created.")
         return "closed-pr"
@@ -127,8 +119,11 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
             validate_form(base_read(form_path), ctx)
         records(base_tree, base_read, ctx)
         member, sc = authenticate(issue, ctx, teams, api.repo)
+        issue, values = revisions.format_issue(api, issue, root, ctx, previous_values)
+        if issue['number'] == root['number']:
+            root = issue
         record = proposal(issue, ctx, organization_member=member, is_sc=sc,
-                          original_issue=root, previous_values=previous_values)
+                          original_issue=root, previous_values=previous_values, input_values=values)
         path = project_path(root_number)
         if path in base_tree:
             raise Invalid("The project ID reserved for this Issue already exists. Ask SC to resolve the collision; it will not be overwritten")
@@ -203,21 +198,22 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
         revisions.set_label(api, issue, 'invalid')
         try:
             try:
-                values = resolved_values(issue, ctx, previous_values)
+                values = revisions.input_values(api, issue, ctx, previous_values)
             except Invalid:
-                from project_workflow.submission import answers
-                values = answers(issue.get('body'), ctx, correction=correction_issue(issue), require_fields=False)
-                values['name'] = issue.get('title') or ''
+                values = revisions.saved_values(api, issue)
             url, omitted = revisions.correction_link(api, root, state, issue, values, ctx, error=exc)
-            message = "**Your proposal needs correction.** Problematic answers are marked with 🔴 in the replacement form.\n\n"
-            message += f"[Correct this submission](<{url}>)\n\nSubmit the replacement form to revalidate your proposal."
+            message = "**Your proposal needs correction.** Problematic answers are marked with 🔴 below.\n\n"
+            message += summary_body(values, ctx, error=exc)
+            message += f"\n[Correct this submission](<{url}>)\n\nSelect every dropdown again, then submit the replacement form."
             if omitted:
-                message += "\n\nLong answers are retained through **Keep previous value** to keep the link usable. Replace that value to change an answer."
+                message += "\n\nLong answers are retained through **Keep previous value**. Replace that value to change an answer."
             if not exc.fields:
                 message += "\n\n" + safe_text(str(exc), markdown=True)
+            if len(message) > 64000:
+                message = message[:55000] + f"\n\n*Display shortened. Complete answers are retained by the workflow.*\n\n[Correct this submission](<{url}>)"
         except Invalid:
             message = "**Your proposal needs correction.** " + safe_text(str(exc), markdown=True)
-            message += "\n\nThe form fields could not be recovered. Ask SC to inspect the submission."
+            message += "\n\nThe answers could not be recovered. Ask SC to inspect the submission."
         feedback(api, issue_number, message)
         return "invalid"
 
@@ -245,10 +241,18 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
         if pr and pr['state'] == 'open':
             api.status(pr['head']['sha'], 'failure', 'Restore the active submission label before merging')
         return 'invalid'
-    acknowledge(api, issue)
     base_sha = api.get('git/ref/heads/main')['object']['sha']
     base_tree = api.tree(base_sha)
     ctx = load_context(api.reader(base_tree), paths=base_tree)
+    member, _ = authenticate(issue, ctx, teams, api.repo)
+    if not member:
+        pr = bound_pr(api, issue_number)
+        if pr and pr['state'] == 'open':
+            api.status(pr['head']['sha'], 'failure', 'The submitter is no longer an organization member')
+        feedback(api, issue_number, '**Submission could not be validated.** The submitter must be an active organization member.')
+        if correction_issue(issue) and revisions.routed_root(api, issue) is None and issue.get('state') != 'closed':
+            api.request('PATCH', f'issues/{issue_number}', {'state': 'closed', 'state_reason': 'not_planned'})
+        return 'rejected-correction' if correction_issue(issue) else 'invalid'
     pr = None
     try:
         if correction_issue(issue):
@@ -299,7 +303,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
             if active['number'] != issue_number or not pr:
                 feedback(api, issue_number, 'Use the correction link on the latest submission. `/edit` is available while its review PR is open.', marker='<!-- pit-project-edit:v1 -->')
                 return 'edit-unavailable'
-            values = resolved_values(issue, ctx, previous_values)
+            values = revisions.input_values(api, issue, ctx, previous_values)
             url, omitted = revisions.correction_link(api, live_root, state, issue, values, ctx)
             message = f"[Edit this submission](<{url}>)\n\nSubmitting this form creates a replacement Issue and updates the existing PR. Opening this link leaves the current proposal unchanged."
             if omitted:
@@ -320,9 +324,6 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
             if pr:
                 api.status(pr['head']['sha'], 'pending', 'Replacement submitted; revalidation required')
             state = revisions.receive_revision(api, issue, root, state, ctx)
-            route_body = revisions.json_body(revisions.ROUTE_MARKER, {'root': root['number']},
-                f"Original submission: https://github.com/{api.repo}/issues/{root['number']}")
-            feedback(api, issue_number, route_body[len(revisions.ROUTE_MARKER)+1:], marker=revisions.ROUTE_MARKER)
             supersede_previous(api, root, state, issue)
         root, state, active, previous_values = revisions.active_submission(api, root['number'], ctx)
         if active['number'] != issue_number:
@@ -356,9 +357,11 @@ def bound_pr(api, issue_number):
         state = revisions.read_state(api, root_number)
         if revisions.latest_number(state) != issue_number or not revisions.same_author(root, issue):
             return None
-    elif revisions.state_comment(api, root_number):
-        if revisions.latest_number(revisions.read_state(api, root_number)) != issue_number:
-            return None
+    else:
+        from project_workflow import workflow_state
+        if workflow_state.read(api, workflow_state.root_path(root_number)):
+            if revisions.latest_number(revisions.read_state(api, root_number)) != issue_number:
+                return None
     return associated_pr(api, root_number)
 
 
