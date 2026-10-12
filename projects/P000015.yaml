@@ -1,0 +1,26 @@
+schema_version: 1
+project_id: P000015
+name: Project Test
+kind: EP
+status: active
+lead: Axel G
+lead_github_username: aguinot
+contributors:
+- name: ag P
+  github_username: aguinottest
+summary: Test
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-1
+phd_thesis: false
+slack_channel: null
+github_url: https://github.com/aguinot/metacoadd
+related_links:
+- https://github.com/aguinot/metacoadd
+submission:
+  issue_number: 15
+  submitted_by: aguinot
+  submitted_at: '2026-10-12T19:56:08Z'
+  issue_title_sha256: 73d56e3113b4d3539e593efc0ebd5c86f09011d4daf6bbce1a26a30aefc761ae
+  issue_body_sha256: 6e9733fed3226704f80cd1b324f5590d793ca54e621b08c48b0a04d6493c05fc
