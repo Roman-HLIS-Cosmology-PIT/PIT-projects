@@ -1,0 +1,25 @@
+schema_version: 1
+project_id: P000019
+name: Proejcttt
+kind: EP
+status: active
+lead: Axel G
+lead_github_username: aguinot
+contributors: []
+summary: This is a test
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-1
+  - SCM-2
+phd_thesis: false
+slack_channel: null
+github_url: https://github.com/aguinot/metacoadd
+related_links:
+- https://github.com/aguinot/metacoadd
+submission:
+  issue_number: 19
+  submitted_by: aguinot
+  submitted_at: '2026-10-12T20:06:32Z'
+  issue_title_sha256: a6a8939e76cbaaf851503bd5be8f96cc3723068512e813358cb97117b1b607d5
+  issue_body_sha256: a5ba60f12ddb5b3121de10389c0f6778220bdb6d6a2e758e78d14c4c0c1ab74a
