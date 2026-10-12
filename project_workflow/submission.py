@@ -100,8 +100,6 @@ def resolved_values(issue, ctx, previous_values=None, *, require_fields=True):
     if correction:
         if previous_values is None:
             raise Invalid("Use a correction link provided on your existing submission")
-        from project_workflow.revisions import strip_reference
-        values['summary'] = strip_reference(values.get('summary', ''))
         for item in ctx.form_source['body']:
             key = item.get('id')
             if key in values and item.get('type') in {'input', 'textarea'} and values[key] == KEEP_VALUE:

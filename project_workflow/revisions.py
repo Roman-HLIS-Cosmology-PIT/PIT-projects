@@ -7,17 +7,55 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from urllib.parse import urlencode
 
 from project_workflow.issue_form import KEEP_VALUE, current_labels
 from project_workflow.project_registry import Invalid
-from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version
+from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version, list_text, is_submission_bot
 from project_workflow import workflow_state
 from project_workflow.review import FORMATTED_MARKER, summary_body
 
 MAX_REVISIONS = 100
 MAX_URL_LENGTH = 7500
 REFERENCE = re.compile(r"(?:\n\n)?<!-- pit-correction:([A-Za-z0-9_-]{20,600}) -->\s*$")
+ROUTE = re.compile(r"\n<!-- pit-project-root:([1-9][0-9]*) -->\s*$")
+REQUEST = re.compile(r"\n<!-- pit-edit-request:([A-Za-z0-9_-]{20,1200}) -->\s*$")
+REQUEST_COMMENTS = ('<!-- pit-project-edit:v1 -->', '<!-- pit-project-submission-feedback:v1 -->')
+
+
+def request_marker(request):
+    encoded = base64.urlsafe_b64encode(json.dumps(request, sort_keys=True).encode()).decode().rstrip('=')
+    return '\n<!-- pit-edit-request:' + encoded + ' -->'
+
+
+def issued_request(api, state):
+    """Only the bot's final, non-rendered comment trailer issues a form link.
+
+    Requesting /edit must not update the PR's commit or its policy status.
+    The request lives in that existing reply until a replacement is submitted.
+    """
+    candidates = []
+    for comment in api.pages(f"issues/{latest_number(state)}/comments"):
+        body = comment.get('body', '')
+        if not is_submission_bot(comment['user']) or not body.startswith(REQUEST_COMMENTS):
+            continue
+        match = REQUEST.search(body)
+        if not match:
+            continue
+        try:
+            encoded = match[1]
+            item = json.loads(base64.b64decode(encoded + '=' * (-len(encoded) % 4), altchars=b'-_', validate=True))
+            if (set(item) != {'root', 'source', 'hash', 'mode', 'token', 'issued_at'}
+                    or item['root'] != state['root'] or item['source'] != latest_number(state)
+                    or not re.fullmatch(r'[0-9a-f]{64}', item['hash'])
+                    or not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', item['token'])
+                    or item['mode'] not in {'edit', 'correction'} or type(item['issued_at']) is not int):
+                continue
+            candidates.append(item)
+        except (ValueError, TypeError, KeyError):
+            continue
+    return max(candidates, key=lambda item: item['issued_at']) if candidates else state.get('request')
 
 
 def digest(text):
@@ -46,11 +84,8 @@ def read_state(api, root_number):
             number(entry['number'])
     except (ValueError, KeyError, TypeError) as exc:
         raise Invalid('Authenticated submission history is missing or malformed; retry the original submission') from exc
+    state['request'] = issued_request(api, state)
     return state
-
-
-def write_state(api, state):
-    workflow_state.write(api, {workflow_state.root_path(state['root']): state})
 
 
 def ensure_state(api, root):
@@ -58,7 +93,7 @@ def ensure_state(api, root):
         workflow_state.write(api, {
             workflow_state.root_path(root['number']): {'root': root['number'], 'author_id': root['user']['id'],
                 'history': [{'number': root['number']}], 'request': None},
-            workflow_state.issue_path(root['number']): {'root': root['number'], 'author_id': root['user']['id']}})
+            workflow_state.issue_path(root['number']): {'root': root['number'], 'author_id': root['user']['id']}}, root=root['number'])
     return read_state(api, root['number'])
 
 
@@ -74,7 +109,7 @@ def strip_reference(text):
 
 def references(issue, ctx):
     values = answers(issue.get('body'), ctx, correction=True, require_fields=False)
-    match = REFERENCE.search(values.get('summary', ''))
+    match = REFERENCE.search(values.get('correction_notes', ''))
     try:
         if match is None:
             raise ValueError()
@@ -84,11 +119,28 @@ def references(issue, ctx):
             raise ValueError()
         return number(data['root']), number(data['previous']), data['token']
     except (ValueError, KeyError, TypeError) as exc:
-        raise Invalid('Use the supplied correction link and retain the reference at the end of the description') from exc
+        raise Invalid('Use the supplied correction link and leave the Changes needed box unchanged') from exc
 
 
 def routed_root(api, issue):
-    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    match = ROUTE.search(issue.get('body') or '')
+    root_number = number(int(match[1])) if match else issue['number']
+    if match is None and correction_issue(issue):
+        # An interrupted activation may have saved a receipt before replacing
+        # the raw form body. This hint grants nothing; a receipt must confirm it.
+        hints = re.findall(r'<!-- pit-correction:([A-Za-z0-9_-]{20,600}) -->', issue.get('body') or '')
+        if len(hints) == 1:
+            try:
+                encoded = hints[0]
+                root_number = number(json.loads(base64.b64decode(encoded + '=' * (-len(encoded) % 4),
+                    altchars=b'-_', validate=True))['root'])
+            except (ValueError, TypeError, KeyError):
+                pass
+    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']), root=root_number)
+    if packet is None:
+        # Before the first new-style formatting, an existing active submission
+        # may still have its receipt in the read-only shared branch.
+        packet = workflow_state.legacy_read(api, workflow_state.issue_path(issue['number']))
     if packet is None:
         return None
     if packet.get('author_id') != issue['user'].get('id'):
@@ -96,8 +148,13 @@ def routed_root(api, issue):
     return number(packet['root'])
 
 
+def answer_packet(api, issue):
+    root = routed_root(api, issue)
+    return workflow_state.read(api, workflow_state.issue_path(issue['number']), root=root) if root else None
+
+
 def input_values(api, issue, ctx, previous_values=None):
-    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    packet = answer_packet(api, issue)
     if (issue.get('body') or '').startswith(FORMATTED_MARKER):
         if (packet is None or packet.get('author_id') != issue['user'].get('id')
                 or packet.get('body_sha256') != digest(issue['body']) or not isinstance(packet.get('values'), dict)):
@@ -112,7 +169,7 @@ def input_values(api, issue, ctx, previous_values=None):
 
 
 def saved_values(api, issue):
-    packet = workflow_state.read(api, workflow_state.issue_path(issue['number']))
+    packet = answer_packet(api, issue)
     if packet is None or packet.get('author_id') != issue['user'].get('id') or not isinstance(packet.get('values'), dict):
         raise Invalid('The previous answers could not be recovered')
     values = deepcopy(packet['values'])
@@ -126,8 +183,9 @@ def format_issue(api, issue, root, ctx, previous_values=None):
     body = FORMATTED_MARKER + '\n' + summary_body(values, ctx)
     if len(body) > 64000:
         body = body[:62000] + '\n\n*Display shortened to fit GitHub. Complete answers are retained by the workflow.*\n'
+    body += f"\n<!-- pit-project-root:{root['number']} -->"
     packet = {'root': root['number'], 'author_id': issue['user']['id'], 'values': values, 'body_sha256': digest(body)}
-    workflow_state.write(api, {workflow_state.issue_path(issue['number']): packet})
+    workflow_state.write(api, {workflow_state.issue_path(issue['number']): packet}, root=root['number'])
     current = api.get(f"issues/{issue['number']}")
     if issue_version(current) != issue_version(issue):
         raise Invalid('The Issue changed before formatting; retry')
@@ -193,18 +251,18 @@ def correction_link(api, root, state, issue, values, ctx, *, error=None):
     mode = 'correction' if error is not None else 'edit'
     version = content_hash(issue)
     if not request or request['source'] != issue['number'] or request['hash'] != version or request['mode'] != mode:
-        request = {'source': issue['number'], 'hash': version, 'mode': mode, 'token': secrets.token_urlsafe(24)}
-        state = deepcopy(state)
-        state['request'] = request
-        write_state(api, state)
+        request = {'root': root['number'], 'source': issue['number'], 'hash': version,
+                   'mode': mode, 'token': secrets.token_urlsafe(24), 'issued_at': time.time_ns()}
+    elif 'issued_at' not in request:
+        request = {**request, 'root': root['number'], 'issued_at': time.time_ns()}
     params = {'template': 'correct-project.yml', 'title': values.get('name', issue.get('title', '')),
               'correction_notes': correction_notes(ctx, error)}
     for item in ctx.form_source['body']:
         key = item.get('id')
         if key and item.get('type') in {'input', 'textarea'}:
-            params[key] = optional(values.get(key, ''))
+            params[key] = list_text(values.get(key, '')) if key == 'related_links' else optional(values.get(key, ''))
     suffix = '\n\n' + reference_comment(root['number'], issue['number'], request['token'])
-    params['summary'] = params.get('summary', '') + suffix
+    params['correction_notes'] = params['correction_notes'] + suffix
     prefix = f'https://github.com/{api.repo}/issues/new?'
     url = prefix + urlencode(params)
     omitted = []
@@ -212,15 +270,14 @@ def correction_link(api, root, state, issue, values, ctx, *, error=None):
     for key in candidates:
         if len(url) <= MAX_URL_LENGTH:
             break
-        value_suffix = suffix if key == 'summary' else ''
-        if len(params[key]) <= len(KEEP_VALUE) + len(value_suffix):
+        if len(params[key]) <= len(KEEP_VALUE):
             continue
-        params[key] = KEEP_VALUE + value_suffix
+        params[key] = KEEP_VALUE
         omitted.append(current_labels(ctx)[key])
         url = prefix + urlencode(params)
     if len(url) > MAX_URL_LENGTH:
         raise Invalid('The correction link is too large; ask SC to inspect this submission')
-    return url, omitted
+    return url, omitted, request
 
 
 def receive_revision(api, issue, root, state, ctx):
@@ -247,7 +304,7 @@ def receive_revision(api, issue, root, state, ctx):
     state["history"].append({"number": issue["number"], "token": token})
     state["request"] = None
     workflow_state.write(api, {workflow_state.root_path(root['number']): state,
-                               workflow_state.issue_path(issue['number']): {'root': root['number'], 'author_id': issue['user']['id']}})
+                               workflow_state.issue_path(issue['number']): {'root': root['number'], 'author_id': issue['user']['id']}}, root=root['number'])
     return state
 
 

@@ -71,6 +71,7 @@ class FakeAPI:
         self.commits = {BASE_SHA: {"tree": {"sha": BASE_SHA}, "parents": []}}
         self.refs = {"main": BASE_SHA}
         self.pr = None
+        self.prs = {}
         self.comments = []
         self.other_issues = {}
         self.other_comments = {}
@@ -102,13 +103,16 @@ class FakeAPI:
             return {"object": {"sha": self.refs[ref]}}
         if endpoint.startswith("git/commits/"):
             return deepcopy(self.commits[endpoint.rsplit("/", 1)[1]])
-        if endpoint == "pulls/99" and self.pr:
-            return deepcopy(self.pr)
+        if endpoint.startswith('pulls/') and endpoint.split('/')[-1].isdigit():
+            n = int(endpoint.split('/')[-1])
+            pr = self.prs.get(n) or (self.pr if self.pr and self.pr['number'] == n else None)
+            if pr:
+                return deepcopy(pr)
         raise AssertionError(endpoint)
 
     def pages(self, endpoint):
         if endpoint.startswith("pulls?"):
-            return [deepcopy(self.pr)] if self.pr else []
+            return deepcopy(list(self.prs.values())) if self.prs else ([deepcopy(self.pr)] if self.pr else [])
         if endpoint.startswith("issues/") and endpoint.endswith("/comments"):
             n = int(endpoint.split('/')[1])
             return deepcopy(self.comments if n == 12 else self.other_comments.get(n, []))
@@ -139,25 +143,35 @@ class FakeAPI:
         if endpoint == "git/commits":
             sha = self.next_sha()
             self.data[sha] = self.data[payload["tree"]]
-            self.commits[sha] = {"tree": {"sha": payload["tree"]}, "parents": [{"sha": s} for s in payload["parents"]]}
+            self.commits[sha] = {"message": payload['message'], "tree": {"sha": payload["tree"]}, "parents": [{"sha": s} for s in payload["parents"]]}
             return {"sha": sha}
         if endpoint == "git/refs" or endpoint.startswith("git/refs/heads/"):
+            if method == 'DELETE':
+                ref = endpoint.removeprefix('git/refs/heads/')
+                if ref not in self.refs:
+                    raise urllib.error.HTTPError('https://api.github.com', 404, 'test', {}, None)
+                del self.refs[ref]
+                return None
             ref = payload["ref"].removeprefix("refs/heads/") if endpoint == "git/refs" else endpoint.removeprefix("git/refs/heads/")
             self.refs[ref] = payload["sha"]
-            if self.pr and self.pr["head"]["ref"] == ref:
-                self.pr["head"]["sha"] = payload["sha"]
+            for pr in list(self.prs.values()) + ([self.pr] if self.pr else []):
+                if pr['head']['ref'] == ref:
+                    pr['head']['sha'] = payload['sha']
             return {"object": {"sha": payload["sha"]}}
         if endpoint == "pulls":
-            self.pr = {"number": 99, "state": "open", "merged_at": None, "user": deepcopy(BOT),
+            self.pr = {"number": 99 + len(self.prs), "state": "open", "merged_at": None, "user": deepcopy(BOT),
                 "base": {"sha": BASE_SHA, "ref": "main", "repo": {"full_name": self.repo}},
                 "head": {"sha": self.refs[payload["head"]], "ref": payload["head"], "repo": {"full_name": self.repo}},
                 "body": payload["body"]}
+            self.prs[self.pr['number']] = self.pr
             return deepcopy(self.pr)
-        if endpoint == "pulls/99/requested_reviewers":
-            return deepcopy(self.pr)
-        if endpoint == "pulls/99":
-            self.pr.update(payload)
-            return deepcopy(self.pr)
+        if endpoint.startswith('pulls/'):
+            n = int(endpoint.split('/')[1])
+            pr = self.prs.get(n) or self.pr
+            if endpoint.endswith('/requested_reviewers'):
+                return deepcopy(pr)
+            pr.update(payload)
+            return deepcopy(pr)
         if endpoint.endswith("/dispatches"):
             self.dispatches.append(payload)
             return None
@@ -317,25 +331,25 @@ class IntakeIntegrationTests(unittest.TestCase):
         api = FakeAPI(issue_fixture(contributor_1_github_username=""))
         self.assertEqual(self.run_process(api), "invalid")
         self.assertIsNone(api.pr)
-        self.assertNotIn("project-submissions/issue-12", api.refs)
+        self.assertIn("project-submissions/issue-12", api.refs)
+        self.assertNotIn('project-workflow/state', api.refs)
 
     def test_invalid_edit_blocks_previously_valid_pr(self):
         api = FakeAPI()
         self.run_process(api)
-        head = api.pr["head"]["sha"]
+        previous_yaml = api.data[api.pr['head']['sha']][project_path(12)]
         api.issue = issue_fixture(kind="KEY")
         self.assertEqual(self.run_process(api), "invalid")
-        self.assertEqual(api.pr["head"]["sha"], head)
+        self.assertEqual(api.data[api.pr['head']['sha']][project_path(12)], previous_yaml)
         self.assertEqual(api.statuses[-1][1], "failure")
         self.assertEqual(len(api.dispatches), 1)
 
-    def test_closing_issue_or_removing_label_blocks_existing_pr(self):
-        for change in ({"state": "closed"}, {"labels": []}):
-            api = FakeAPI()
-            self.run_process(api)
-            api.issue.update(change)
-            self.assertEqual(self.run_process(api), "invalid")
-            self.assertEqual(api.statuses[-1][1], "failure")
+    def test_removing_label_blocks_existing_pr(self):
+        api = FakeAPI()
+        self.run_process(api)
+        api.issue['labels'] = []
+        self.assertEqual(self.run_process(api), 'invalid')
+        self.assertEqual(api.statuses[-1][1], 'failure')
 
     def test_interrupted_pr_creation_reuses_orphan_branch(self):
         api = FakeAPI()

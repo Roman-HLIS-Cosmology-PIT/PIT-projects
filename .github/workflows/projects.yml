@@ -32,7 +32,8 @@ jobs:
     name: Project submission and corrections
     if: >-
       (github.event_name == 'issues' &&
-       (contains(github.event.issue.labels.*.name, 'new-project') || github.event.label.name == 'new-project' ||
+       (github.event.action == 'closed' ||
+        contains(github.event.issue.labels.*.name, 'new-project') || github.event.label.name == 'new-project' ||
         contains(github.event.issue.labels.*.name, 'project-correction') || github.event.label.name == 'project-correction')) ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/edit')) ||

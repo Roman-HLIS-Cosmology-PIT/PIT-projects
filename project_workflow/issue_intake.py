@@ -21,14 +21,17 @@ from project_workflow.submission import (
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
 from project_workflow.review import proposal_body, request_review, safe_text, summary_body
-from project_workflow import revisions
+from project_workflow import revisions, workflow_state
 from project_workflow.submission import correction_issue, resolved_values
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
+CANCEL_MARKER = "<!-- pit-project-cancelled:v1 -->"
 
 
-def feedback(api, issue_number, message, *, marker=COMMENT_MARKER):
+def feedback(api, issue_number, message, *, marker=COMMENT_MARKER, request=None):
     body = marker + "\n" + message
+    if request is not None:
+        body += revisions.request_marker(request)
     previous = [c for c in api.pages(f"issues/{issue_number}/comments")
                 if is_submission_bot(c["user"]) and c.get("body", "").startswith(marker)]
     if previous:
@@ -49,6 +52,75 @@ def associated_pr(api, issue_number):
     if matches and not is_submission_bot(matches[0]["user"]):
         raise Invalid("The reserved submission branch is used by a manually authored PR; ask SC to resolve it")
     return matches[0] if matches else None
+
+
+def cancelled_root(api, issue_number):
+    for comment in api.pages(f'issues/{issue_number}/comments'):
+        body = comment.get('body', '')
+        if is_submission_bot(comment['user']) and body.startswith(CANCEL_MARKER):
+            match = revisions.ROUTE.search(body)
+            if match:
+                return number(int(match[1]))
+    return None
+
+
+def cancel_submission(api, issue):
+    """Close the review PR and delete only the latest submission's own branch.
+
+    A durable bot cancellation reply allows a retry after partial cleanup and
+    prevents reopening from silently resurrecting a cancelled proposal.
+    No current organization membership is needed to finish cleanup.
+    """
+    cancellation = cancelled_root(api, issue['number'])
+    root_number = cancellation or revisions.routed_root(api, issue)
+    if root_number is None:
+        route = revisions.ROUTE.search(issue.get('body') or '')
+        if route:
+            root_number = number(int(route[1]))
+    if root_number is None:
+        return 'ignored-closure'
+    root = api.get(f'issues/{root_number}')
+    if not revisions.same_author(root, issue):
+        raise Invalid('Closed submission does not match its original author')
+    pr = associated_pr(api, root_number)
+    if pr and pr.get('merged_at'):
+        # Closing via Closes #N after merge accepts, rather than cancels.
+        return 'already-merged'
+    sha, _, data = workflow_state.snapshot(api, root_number)
+    if sha is None and cancellation is not None:
+        return 'cancelled'
+    state = data.get(workflow_state.root_path(root_number))
+    if state is not None and revisions.latest_number(state) != issue['number']:
+        return 'superseded'
+    if state is None and cancelled_root(api, issue['number']) is None:
+        return 'ignored-closure'
+    current = api.get(f"issues/{issue['number']}")
+    if current.get('state') != 'closed':
+        return 'closure-reversed'
+    if pr:
+        live_pr = api.get(f"pulls/{pr['number']}")
+        if live_pr.get('merged_at'):
+            return 'already-merged'
+        if live_pr['head']['sha'] != sha and sha is not None:
+            raise Invalid('Proposal branch changed before cancellation; retry')
+        if live_pr['state'] == 'open':
+            api.status(live_pr['head']['sha'], 'failure', 'Project submission cancelled')
+            closed_pr = api.request('PATCH', f"pulls/{pr['number']}", {'state': 'closed'})
+            if closed_pr.get('merged_at'):
+                return 'already-merged'
+    message = ('**Project submission cancelled.** Its unmerged review PR is closed and branch cleanup is requested. '
+               'To start again, use the New Project form.' + f"\n<!-- pit-project-root:{root_number} -->")
+    # Record cancellation before deleting the branch, including on the root
+    # Issue when the latest submission is a replacement.
+    feedback(api, root_number, message, marker=CANCEL_MARKER)
+    if issue['number'] != root_number:
+        feedback(api, issue['number'], message, marker=CANCEL_MARKER)
+    workflow_state.remove(api, root_number, sha)
+    message = message.replace('branch cleanup is requested', 'its submission branch is removed')
+    feedback(api, root_number, message, marker=CANCEL_MARKER)
+    if issue['number'] != root_number:
+        feedback(api, issue['number'], message, marker=CANCEL_MARKER)
+    return 'cancelled'
 
 
 def repository_warning(url):
@@ -129,25 +201,17 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
             raise Invalid("The project ID reserved for this Issue already exists. Ask SC to resolve the collision; it will not be overwritten")
         warning = repo_check(record["github_url"])
         branch = submission_branch(root_number)
-        try:
-            existing_sha = api.get(f"git/ref/heads/{branch}")["object"]["sha"]
-        except urllib.error.HTTPError as exc:
-            if exc.code != 404:
-                raise
-            existing_sha = None
+        # Formatting saved answers on the same branch. Refresh the PR because
+        # its head may have advanced while its YAML was preserved.
+        pr = associated_pr(api, root_number)
+        existing_sha, commit, branch_data = workflow_state.snapshot(api, root_number)
         if pr and existing_sha != pr["head"]["sha"]:
             raise Invalid("The submission branch changed during processing; save the Issue again to retry")
         if existing_sha:
             existing_tree = api.tree(existing_sha)
             # Allow a branch based on older main, but reject unrelated edits.
             # Compare against its own parent, which our commits always set to main.
-            commit = api.get(f"git/commits/{existing_sha}")
-            if len(commit["parents"]) != 1:
-                raise Invalid("Submission branch has unsupported history; ask SC to resolve it")
-            parent_tree = api.tree(commit["parents"][0]["sha"])
-            if changed_files(parent_tree, existing_tree) != {path} or path in parent_tree:
-                raise Invalid("Submission branch contains unrelated changes; ask SC to resolve it")
-            existing_record = api.reader(existing_tree)(path)
+            existing_record = api.reader(existing_tree)(path) if path in existing_tree else None
             unchanged = existing_record == project_yaml(record) and commit["parents"][0]["sha"] == base_sha
         else:
             unchanged = False
@@ -159,21 +223,11 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
             base_commit = api.get(f"git/commits/{base_sha}")
             tree = api.request("POST", "git/trees", {"base_tree": base_commit["tree"]["sha"],
                 "tree": [{"path": path, "mode": "100644", "type": "blob", "content": project_yaml(record)}]})
-            commit = api.request("POST", "git/commits", {"message": f"Project proposal from Issue #{issue_number}",
-                "tree": tree["sha"], "parents": [base_sha]})
-            head_sha = commit["sha"]
-            # Publish pending before attaching this commit to the PR branch.
-            api.status(head_sha, "pending", "Awaiting independent project policy validation")
             fresh(api, issue, base_sha, ctx, teams, root, state)
-            if existing_sha:
-                current_sha = api.get(f"git/ref/heads/{branch}")["object"]["sha"]
-                if current_sha != existing_sha:
-                    raise Invalid("Submission branch changed before publication; retry")
-                api.request("PATCH", f"git/refs/heads/{branch}", {"sha": head_sha, "force": True})
-            else:
-                api.request("POST", "git/refs", {"ref": "refs/heads/" + branch, "sha": head_sha})
+            head_sha = workflow_state.publish(api, root_number, branch_data, tree['sha'], base_sha, existing_sha)
         body = proposal_body(record, ctx, api.repo, issue_number, warning)
         title = ("New project: " + record["name"])[:256]
+        had_pr = pr is not None
         if pr:
             pr = api.request("PATCH", f"pulls/{pr['number']}", {"title": title, "body": body})
         else:
@@ -190,7 +244,7 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
         if warning:
             message += "\n\n**Note:** " + warning
         feedback(api, issue_number, message)
-        return "updated" if existing_sha else "created"
+        return "updated" if had_pr else "created"
     except Invalid as exc:
         if pr:
             current = api.get(f"pulls/{pr['number']}")
@@ -201,20 +255,28 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
                 values = revisions.input_values(api, issue, ctx, previous_values)
             except Invalid:
                 values = revisions.saved_values(api, issue)
-            url, omitted = revisions.correction_link(api, root, state, issue, values, ctx, error=exc)
-            message = "**Your proposal needs correction.** Problematic answers are marked with 🔴 below.\n\n"
-            message += summary_body(values, ctx, error=exc)
-            message += f"\n[Correct this submission](<{url}>)\n\nSelect every dropdown again, then submit the replacement form."
+            url, omitted, request = revisions.correction_link(api, root, state, issue, values, ctx, error=exc)
+            intro = "**Your proposal needs correction.** Problematic answers are marked with 🔴 in the box below.\n\n"
+            opening = '<details open>\n<summary><strong>Submitted project</strong></summary>\n\n'
+            closing = '\n</details>\n\n'
+            actions = f"[Correct this submission](<{url}>)\n\nCheck the dropdown selections, then submit the replacement form."
             if omitted:
-                message += "\n\nLong answers are retained through **Keep previous value**. Replace that value to change an answer."
+                actions += "\n\nLong answers are retained through **Keep previous value**. Replace that value to change an answer."
             if not exc.fields:
-                message += "\n\n" + safe_text(str(exc), markdown=True)
-            if len(message) > 64000:
-                message = message[:55000] + f"\n\n*Display shortened. Complete answers are retained by the workflow.*\n\n[Correct this submission](<{url}>)"
+                actions += "\n\n" + safe_text(str(exc), markdown=True)
+            body = summary_body(values, ctx, error=exc)
+            # Keep the container closed and its action link visible even when
+            # GitHub's comment limit requires shortening a very long summary.
+            budget = 64000 - len(intro + opening + closing + actions)
+            if len(body) > budget:
+                note = '\n\n*Display shortened. Complete answers are retained by the workflow.*\n'
+                body = body[:max(0, budget - len(note))] + note
+            message = intro + opening + body + closing + actions
         except Invalid:
+            request = None
             message = "**Your proposal needs correction.** " + safe_text(str(exc), markdown=True)
             message += "\n\nThe answers could not be recovered. Ask SC to inspect the submission."
-        feedback(api, issue_number, message)
+        feedback(api, issue_number, message, request=request)
         return "invalid"
 
 
@@ -236,6 +298,11 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
     issue = api.get(f"issues/{issue_number}")
     if issue.get('pull_request') or (edit_comment is not None and not labelled(issue)):
         return 'ignored-command'
+    if issue.get('state') == 'closed':
+        return cancel_submission(api, issue)
+    if cancelled_root(api, issue_number) is not None:
+        feedback(api, issue_number, '**This submission was cancelled.** Use the New Project form to start again.')
+        return 'cancelled'
     if not labelled(issue):
         pr = bound_pr(api, issue_number)
         if pr and pr['state'] == 'open':
@@ -265,6 +332,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
                 if exc.code != 404:
                     raise
                 raise Invalid('The original submission Issue does not exist') from exc
+            if cancelled_root(api, root_number) is not None:
+                raise Invalid('This project submission was cancelled. Use the New Project form to start again')
             state = revisions.read_state(api, root_number)
             if not revisions.same_author(root, issue):
                 raise Invalid('Only the original submitter may replace this proposal')
@@ -304,11 +373,11 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
                 feedback(api, issue_number, 'Use the correction link on the latest submission. `/edit` is available while its review PR is open.', marker='<!-- pit-project-edit:v1 -->')
                 return 'edit-unavailable'
             values = revisions.input_values(api, issue, ctx, previous_values)
-            url, omitted = revisions.correction_link(api, live_root, state, issue, values, ctx)
+            url, omitted, request = revisions.correction_link(api, live_root, state, issue, values, ctx)
             message = f"[Edit this submission](<{url}>)\n\nSubmitting this form creates a replacement Issue and updates the existing PR. Opening this link leaves the current proposal unchanged."
             if omitted:
                 message += "\n\nLong answers are retained through **Keep previous value**. Replace that value to change an answer."
-            feedback(api, issue_number, message, marker='<!-- pit-project-edit:v1 -->')
+            feedback(api, issue_number, message, marker='<!-- pit-project-edit:v1 -->', request=request)
             return 'edit-requested'
         if correction_issue(issue):
             # Check the transition completely before changing this proposal's status.
@@ -377,6 +446,11 @@ def main():
         checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         if checkout != api.get("git/ref/heads/main")["object"]["sha"]:
             raise Invalid("Submission code must run from current main; rerun this workflow")
+        current_issue = api.get(f'issues/{issue_number}')
+        if current_issue.get('state') == 'closed' and not current_issue.get('pull_request'):
+            result = cancel_submission(api, current_issue)
+            print(json.dumps({'issue': issue_number, 'result': result}))
+            return 0
         teams = TeamDirectory(os.environ.get("SC_TEAM_READ_TOKEN", "")) if os.environ.get("SC_TEAM_READ_TOKEN") else None
         if teams is None:
             pr = bound_pr(api, issue_number)

@@ -30,7 +30,7 @@ class CorrectionTests(unittest.TestCase):
     def params(self, n=12, marker=issue_intake.COMMENT_MARKER):
         rows = self.api.comments if n == 12 else self.api.other_comments[n]
         body = next(c['body'] for c in rows if c['body'].startswith(marker))
-        url = re.search(r'\]\(<(https://github\.com/[^>]+)>\)', body)[1]
+        url = re.search(r'\]\(<(https://github\.com/[^>]+/issues/new\?[^>]+)>\)', body)[1]
         return {k: v[0] for k, v in parse_qs(urlsplit(url).query, keep_blank_values=True).items()}
 
     def replacement(self, params, n=13, **changes):
@@ -42,10 +42,10 @@ class CorrectionTests(unittest.TestCase):
             key = item['id']
             values[key] = {'kind': 'EP', 'working_group': 'SCM', 'deliverable_ids': 'SCM / SCM-001', 'phd_thesis': 'True'}[key] if item['type'] == 'dropdown' else params.get(key, '') or '_No response_'
         title = changes.pop('title', params['title'])
-        if 'summary' in changes:
-            reference = revisions.REFERENCE.search(params.get('summary', ''))
+        if 'correction_notes' in changes:
+            reference = revisions.REFERENCE.search(params.get('correction_notes', ''))
             if reference:
-                changes['summary'] += '\n\n' + reference[0].strip()
+                changes['correction_notes'] += '\n\n' + reference[0].strip()
         values.update(changes)
         issue = {**issue_fixture(), 'number': n, 'title': title, 'created_at': '2026-10-12T12:00:00Z',
                  'labels': [{'name': 'project-correction'}],
@@ -128,9 +128,9 @@ class CorrectionTests(unittest.TestCase):
         self.process()
         self.command()
         self.replacement(self.params(marker='<!-- pit-project-edit:v1 -->'), kind='KEY')
-        head = self.api.pr['head']['sha']
+        previous_yaml = self.api.data[self.api.pr['head']['sha']][project_path(12)]
         self.assertEqual(self.process(13), 'invalid')
-        self.assertEqual(self.api.pr['head']['sha'], head)
+        self.assertEqual(self.api.data[self.api.pr['head']['sha']][project_path(12)], previous_yaml)
         self.assertEqual(self.api.statuses[-1][1], 'failure')
         self.assertEqual(self.policy(), 1)
         params = self.params(13)
@@ -146,7 +146,7 @@ class CorrectionTests(unittest.TestCase):
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(params['correction_notes'], '')
+        self.assertEqual(revisions.strip_reference(params['correction_notes']), '')
         self.assertNotIn('kind', params)
         self.assertNotIn('working_group', params)
         self.assertNotIn('deliverable_ids', params)
@@ -202,7 +202,7 @@ class CorrectionTests(unittest.TestCase):
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(revisions.strip_reference(params['summary']), KEEP_VALUE)
+        self.assertEqual(params['summary'], KEEP_VALUE)
         original = self.record()['summary']
         self.replacement(params, slack_channel='_No response_', related_links='_No response_')
         self.assertEqual(self.process(13), 'updated')
@@ -230,7 +230,7 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.policy(), 0)
 
     def test_edited_previous_issue_or_missing_state_blocks_policy(self):
-        from project_workflow.workflow_state import BRANCH
+        from project_workflow.submission import submission_branch
         self.process()
         self.command()
         self.replacement(self.params(marker='<!-- pit-project-edit:v1 -->'))
@@ -238,14 +238,14 @@ class CorrectionTests(unittest.TestCase):
         self.api.issue['title'] = 'Changed superseded Issue'
         self.assertEqual(self.policy(), 1)
         self.api.issue['title'] = 'Shape measurement validation'
-        del self.api.refs[BRANCH]
+        del self.api.refs[submission_branch(12)]
         self.assertEqual(self.policy(), 1)
 
     def test_missing_answer_heading_can_be_recovered_using_a_replacement_form(self):
         self.api.issue['body'] = self.api.issue['body'].replace('### Description', '### Wrong heading')
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
-        self.assertEqual(revisions.strip_reference(params['summary']), '')
+        self.assertEqual(params['summary'], '')
         self.replacement(params, summary='Recovered description', kind='EP')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.record()['summary'], 'Recovered description')
@@ -308,10 +308,33 @@ class CorrectionTests(unittest.TestCase):
         self.assertIsNone(self.api.pr)
 
     def test_nonmember_does_not_create_automation_state(self):
-        from project_workflow.workflow_state import BRANCH
+        from project_workflow.submission import submission_branch
         self.assertEqual(issue_intake.process(self.api, Teams(member=False), 12, repo_check=lambda _: None), 'invalid')
-        self.assertNotIn(BRANCH, self.api.refs)
+        self.assertNotIn(submission_branch(12), self.api.refs)
+        self.assertNotIn('project-workflow/state', self.api.refs)
         self.assertIsNone(self.api.pr)
+
+    def test_clean_prefills_allow_description_and_links_to_be_replaced(self):
+        self.api.issue = issue_fixture(summary='Test', related_links='```text\n\n```')
+        self.assertEqual(self.process(), 'created')
+        self.command()
+        params = self.params(marker='<!-- pit-project-edit:v1 -->')
+        self.assertEqual(params['summary'], 'Test')
+        self.assertEqual(params['related_links'], '')
+        self.assertIsNotNone(revisions.REFERENCE.search(params['correction_notes']))
+        self.replacement(params, summary='Changed description', related_links='https://example.org/new')
+        self.assertEqual(self.process(13), 'updated')
+        self.assertEqual(self.record()['summary'], 'Changed description')
+        self.assertEqual(self.record()['related_links'], ['https://example.org/new'])
+        self.assertNotIn('pit-correction:', self.record()['summary'])
+        self.assertEqual(self.policy(), 0)
+        self.command(13)
+        self.replacement(self.params(13, marker='<!-- pit-project-edit:v1 -->'), n=14,
+                         summary='Another description', related_links='_No response_')
+        self.assertEqual(self.process(14), 'updated')
+        self.assertEqual(self.record()['summary'], 'Another description')
+        self.assertEqual(self.record()['related_links'], [])
+        self.assertEqual(self.policy(), 0)
 
 
 if __name__ == '__main__':

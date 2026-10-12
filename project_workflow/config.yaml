@@ -276,7 +276,6 @@ form:
     attributes:
       label: Related links
       description: Optional. One HTTPS URL per line. Do not include credentials or secret sharing tokens.
-      render: text
     validations:
       required: false
   - type: markdown
@@ -374,5 +373,8 @@ form:
 
   - type: markdown
     attributes:
-      value: After submitting your project, stay on the Issue page until a new message appears with instructions for
-        the next steps. You may need to refresh the page; this can take a few minutes.
+      value: |
+        ---
+
+        **After submitting your project, stay on the Issue page** until a new message appears with instructions for the next steps.
+        You may need to refresh the page; this can take a few minutes.

@@ -111,15 +111,14 @@ def form(ctx, *, correction=False):
         body = [{"type": "textarea", "id": "correction_notes",
                  "attributes": {"label": CORRECTION_NOTES_LABEL}, "validations": {"required": False}},
                 {"type": "markdown", "attributes": {"value":
-                 "Update your answers and select each dropdown again. Leave the supplied reference at the "
-                 "end of the description unchanged. Empty optional text fields clear previous answers. "
+                 "Leave the Changes needed box unchanged. Update your answers and check each dropdown. "
+                 "Dropdown defaults are the same as in the New Project form. Empty optional text fields clear previous answers. "
                  "**Keep previous value** retains a long answer that could not fit in the link."}}]
         for item in spec["body"]:
             if item.get("type") == "markdown" and item is spec["body"][0]:
                 continue
             if item.get("type") == "dropdown":
-                item["attributes"].pop("default", None)
-                item["attributes"]["description"] = "Select again for this submission."
+                item["attributes"]["description"] = "Check or select again for this submission."
             body.append(item)
         spec["body"] = body
     validate_form(yaml.safe_dump(spec), ctx, correction=correction)

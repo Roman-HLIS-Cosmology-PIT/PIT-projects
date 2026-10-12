@@ -120,14 +120,15 @@ The stored contributor list has no five-person limit.
 
 After submission, stay on the Issue page until the workflow posts next-step
 instructions. You may need to refresh the page; this can take a few minutes.
+A divider and bold waiting notice separate the form ending from the contributor fields.
 There is no separate acknowledgment or latest-submission message. The workflow
 reformats the native field-by-field Issue body into the same readable summary
 used in the PR: bold field labels, names followed by clickable usernames, and
 one contributor list.
 
 If validation fails, one feedback comment repeats the complete summary with
-**🔴** only at the problematic fields or entries, then provides a correction
-link. The **Correct or Edit Project** form starts with one plain-text **Changes
+**🔴** only at the problematic fields or entries inside an expanded box, clearly
+separate from the opening error message. The correction link appears after the box. The **Correct or Edit Project** form starts with one plain-text **Changes
 needed** box containing only concise instructions, for example:
 
 ```text
@@ -135,17 +136,20 @@ Deliverables: CAS-1 does not belong to SCM. Select a deliverable from your chose
 Contributor 2 GitHub username: Fill both contributor name and GitHub username, or leave both blank.
 ```
 
-Text answers are prefilled where the native form supports it. Every dropdown
-must be selected again; its description says **Select again for this
-submission**. There are no per-dropdown previous-selection boxes, no keep-choice
+Text answers are prefilled where the native form supports it. Correction dropdowns
+use exactly the same configured defaults as the New Project form (currently EP
+and False for kind and PhD thesis); check the selections before submitting.
+Groups/deliverables retain the source defaults, including an unset default where
+the source does not specify one. There are no per-dropdown previous-selection boxes, no keep-choice
 option, and no Issue-number inputs. Guidance text does not supply project data
 or grant permission. Clearing an optional text field clears that answer.
 
 GitHub's native forms have no hidden inputs. A short routing reference is
-therefore appended as an HTML comment at the end of the prefilled description.
-Keep that comment when changing the description. It is visible in the form's
-text editor, but is removed from the rendered Issue, PR summary and project
-YAML. It carries no credential. Its contents are never trusted as authority:
+therefore appended as an HTML comment in the **Changes needed** guidance box.
+Leave that box unchanged. It is visible in the guidance editor but is removed
+from the rendered Issue, PR summary and project YAML. The project description
+contains only project text and can be replaced freely; related links use an
+ordinary editable textarea and an empty list appears as an empty field. It carries no credential. Its contents are never trusted as authority:
 the workflow checks the issued reference, source version, live organization
 membership and original author's numeric GitHub identity. Removing or changing
 it rejects an unactivated correction instead of redirecting another proposal.
@@ -178,18 +182,40 @@ Native GitHub checks simple required fields where supported; membership, schema
 and catalogue validation run afterward. There are no cascading dropdowns.
 Long text that cannot fit in a correction link is replaced by **Keep previous
 value**, which retains its complete saved answer. Replace that sentinel, while
-keeping the appended reference for a description, to change the answer.
+leaving the Changes needed box unchanged, to change the answer.
 Very large displays may be shortened to fit GitHub; saved answers remain complete.
 
-Internal revision state and answer receipts live on the bot-managed branch
-`project-workflow/state`, never in main's project/configuration directories and
-never in extra Issue comments or state PRs. The workflow creates it automatically
-using its existing repository token and appends non-forced updates. Leave that
-branch in place and do not edit or merge it. State has the same visibility as the
-repository and contains submitted project information, not secrets.
-Submission and policy jobs share a queued concurrency group to avoid conflicting
-state updates or stale statuses. No new token, login or external backend is used.
-A closed, unmerged PR is not replaced: ask SC to reopen it to continue.
+Each verified original submission gets one branch:
+`project-submissions/issue-<original Issue number>`. The workflow creates it
+after confirming organization membership, even if the answers need correction.
+Its review PR is opened only after validation passes. Replacement Issues reuse
+that same branch and PR; multiple submissions have separate branches.
+
+Answer receipts and revision history are compressed metadata in that branch's
+commit message. They are not files in the PR diff: only the project YAML is
+proposed for main. Before the first valid proposal, the branch has the same
+files as its main parent. An invalid replacement preserves the last valid YAML,
+but its new revision metadata advances the head and leaves **Project policy**
+failing. Do not manually edit the reserved branches or their commit metadata.
+Metadata is readable by repository readers and contains submitted project
+information, not secrets; compression provides no privacy.
+
+The existing bot reply that provides a correction/edit link also carries its
+authenticated request reference. Asking for `/edit` changes that reply only:
+the PR head and status remain unchanged until a replacement is submitted.
+Do not delete or edit those bot replies; request a fresh link if needed.
+Submission and policy jobs retain their shared queue to prevent stale statuses.
+No new token, login or external backend is used.
+
+**Cancel a submission by closing its latest Issue.** The workflow closes its
+unmerged review PR, if any, and deletes that submission's branch. This also
+works for invalid submissions with no PR. Closing a superseded Issue keeps the
+active proposal. Issue closure after a merged PR means acceptance and does not
+cancel the project. Cleanup may take a few minutes; retry **Project workflows**
+with operation **submit** and the latest Issue number if an API error interrupts it.
+Reopening a cancelled Issue does not recreate its branch or PR; submit a new
+project instead. Closing only an unmerged PR retains its branch so SC can reopen
+the same review, rather than creating a duplicate PR.
 
 
 Ordinary organization members may create EP projects with themselves as lead.
@@ -334,11 +360,11 @@ main. Do not change tokens or loosen policy to work around a stale run.
 
 Apply the patch from the repository root and publish it through your usual
 main commit or SC-authored PR. It is based on main commit
-`b1863043bb8dd6993f04c050f7cab126ccb618ca`. The accepted test project is unchanged.
+`5c71f63a32572eda6ff358c773b85a311d809dff`. The accepted test project is unchanged.
 
 ```bash
-git apply --check /path/to/PIT-projects-submission-presentation.patch
-git apply /path/to/PIT-projects-submission-presentation.patch
+git apply --check /path/to/PIT-projects-submission-branches.patch
+git apply /path/to/PIT-projects-submission-branches.patch
 python -m project_workflow.project_registry validate
 python -m project_workflow.issue_form --check
 ```
@@ -352,11 +378,19 @@ using the new form. Routine configuration edits still require just one source
 file and generate outputs automatically on main or the same SC PR.
 
 Retain the `new-project` and `project-correction` labels, membership secret and
-Actions settings. Reviews still go only to **aguinot**. The state branch is
-created automatically; no manual setup or new secret is needed.
+Actions settings. Reviews still go only to **aguinot**. Submission branches are
+created automatically; no manual setup or new secret is needed. This patch
+includes and replaces the unapplied `PIT-projects-correction-fields.patch`:
+apply this combined patch only.
 Use fresh test submissions for this implementation update. Previous correction
-links/reference inputs are retired; finish or close old test PRs/Issues before
-testing. Accepted project YAML needs no migration. This update does not delete
+links carrying the reference in the description are retired; request a new `/edit`
+link or rerun submission for the latest invalid Issue after installing.
+If `project-workflow/state` already exists, it is read only: the new code never
+creates or updates it. Rerun **submit** for the latest Issue of each active old
+submission to migrate its receipts onto its own proposal branch, or close that
+latest Issue to cancel it. Once every old submission is migrated, cancelled or
+merged, you can manually delete `project-workflow/state`. Keep it until then.
+Accepted project YAML needs no migration. This update does not delete
 old bot comments from previously created test Issues.
 
 ## Testing after installation
@@ -379,15 +413,16 @@ old bot comments from previously created test Issues.
 5. Submit a valid EP Issue from an organization member with Read access,
    entering their own username as lead. Check the readable Issue body, one feedback
    comment, formatted PR,
-   human review request, linked Issue and one YAML addition. Comment `/edit`,
-   verify that the form has no error list or 🔴, select every dropdown again,
+   human review request, linked Issue and one YAML addition. Confirm the PR uses
+   `project-submissions/issue-<original number>` and no shared state branch is created. Comment `/edit`,
+   verify that the form has no error list or 🔴, check its default selections,
    then submit a replacement and
    verify that the same PR updates and the previous Issue is closed.
 6. Test a working-group/deliverable mismatch or a half-filled contributor pair.
    Check an **invalid** label and the correction link. Confirm the feedback
    repeats the full summary and marks only the incorrect selection with 🔴.
    Check the form starts with short correction instructions, has no Issue-number
-   inputs or previous-selection boxes, and asks you to select dropdowns again. Submit a replacement with corrected answers and
+   inputs or previous-selection boxes, and asks you to check the dropdown selections. Submit a replacement with corrected answers and
    verify recovery without a duplicate PR. Also confirm an ordinary
    member's CPP/KEY submission is rejected.
 7. Confirm the initial project YAML and PR summary contain the original Issue
@@ -402,7 +437,14 @@ old bot comments from previously created test Issues.
 9. Open the correction form directly without a bot-issued reference. Confirm
    that its Issue is closed and directs you to the New Project form. Test another
    member trying your correction link: it must not affect your PR.
-10. Revert temporary wording/catalogue test changes through your usual commit/PR
+10. Keep two submissions open together. Confirm they have different branches
+    and PRs. Close the latest Issue of one; confirm its PR closes and its branch
+    disappears while the other submission remains unchanged. Repeat with an
+    invalid submission that has no PR. After a correction, closing the old
+    superseded Issue must keep the latest branch and PR. Reopening a cancelled
+    Issue must not recreate either. Merging must retain the accepted YAML and
+    must not report cancellation.
+11. Revert temporary wording/catalogue test changes through your usual commit/PR
    route. Keep accepted test project history, or use a separate test repository
    if disposable project records are needed.
 
