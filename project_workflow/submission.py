@@ -1,7 +1,10 @@
 """Parse Issue Form answers as data and reuse registry validation/policy."""
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import zlib
 import re
 from urllib.parse import urlsplit
 
@@ -89,26 +92,45 @@ def optional(value):
     return "" if value.strip() in {"", "_No response_", "None"} else value.strip()
 
 
+FORMATTED_MARKER = '<!-- pit-project-summary:v2 -->'
+SOURCE_MARKER = re.compile(r'\n<!-- pit-project-source:([A-Za-z0-9+/=]+) -->\n?\Z')
+
+
+def submission_body(issue):
+    """Read the native form retained inside a formatted Issue, as untrusted data.
+
+    No branch/database stores answers. Bounded decompression rejects oversized
+    or malformed input. The visible summary is checked separately below.
+    """
+    body = issue.get('body')
+    if not isinstance(body,str) or len(body.encode('utf-8')) > 65536:
+        raise Invalid('Issue description is missing or too long (maximum 64 KiB)')
+    if not body.startswith(FORMATTED_MARKER):
+        return body
+    match = SOURCE_MARKER.search(body)
+    if not match:
+        raise Invalid('The formatted submission was changed; cancel and submit a new project')
+    try:
+        compressed = base64.b64decode(match[1],validate=True)
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(compressed,65537)
+        if len(raw) > 65536 or not decoder.eof or decoder.unused_data:
+            raise ValueError('Invalid or oversized source')
+        return raw.decode('utf-8')
+    except (ValueError,UnicodeError,binascii.Error,zlib.error) as exc:
+        raise Invalid('The formatted submission data is invalid; cancel and submit a new project') from exc
+
+
 def resolved_values(issue, ctx):
-    values = answers(issue.get("body"), ctx)
-    values["name"] = issue.get("title") or ""
+    values = answers(submission_body(issue), ctx)
+    values['name'] = issue.get('title') or ''
     return values
 
 
 def selected_groups(value, ctx):
-    selected = []
-    for line in value.splitlines():
-        if re.fullmatch(r"- \[ \] .+", line):
-            continue
-        match = re.fullmatch(r"- \[[xX]\] (.+)", line)
-        if not match:
-            if optional(line):
-                raise Invalid("Working groups: keep the checkbox format", fields={"working_groups"})
-            continue
-        code = option_value(match[1])
-        if code not in ctx.working_groups or code in selected:
-            raise Invalid("Working groups: choose each catalogue group at most once", fields={"working_groups"})
-        selected.append(code)
+    selected = [option_value(x.strip()) for x in optional(value).split(',') if x.strip()]
+    if len(set(selected)) != len(selected) or any(code not in ctx.working_groups for code in selected):
+        raise Invalid('Working groups: choose distinct groups from the catalogue',fields={'working_groups'})
     return selected
 
 
@@ -215,9 +237,13 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         'submission':{'issue_number':issue['number'], 'submitted_by':actor,
             'submitted_at':utc_timestamp(issue.get('created_at')),
             'issue_title_sha256':hashlib.sha256(issue['title'].encode('utf-8')).hexdigest(),
-            'issue_body_sha256':hashlib.sha256(issue['body'].encode('utf-8')).hexdigest()},
+            'issue_body_sha256':hashlib.sha256(submission_body(issue).encode('utf-8')).hexdigest()},
     }
     validate_record(record,project_path(issue['number']),ctx)
+    if issue['body'].startswith(FORMATTED_MARKER):
+        from project_workflow.review import formatted_issue_body
+        if issue['body'] != formatted_issue_body(record,ctx,submission_body(issue)):
+            raise Invalid('The formatted submission was changed; cancel and submit a new project')
     authorize_change(None,record,actor,ctx,organization_member=organization_member,is_sc=is_sc)
     return record
 

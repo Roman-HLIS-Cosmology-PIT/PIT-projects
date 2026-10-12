@@ -22,7 +22,7 @@ def option_value(value):
 
 
 def group_options(ctx):
-    return {f"{code} — {' '.join(group['description'].split())}": code
+    return {f"{code} — {' '.join(group['description'].split()).replace(',', ';')}": code
             for code, group in sorted(ctx.working_groups.items())}
 
 
@@ -47,8 +47,6 @@ def form(ctx):
         source = item.pop('options_from', None)
         if item.get('type') == 'working_group_sections':
             for code, group in sorted(ctx.working_groups.items()):
-                expanded.append({'type':'markdown','attributes':{'value':
-                    f"### {code} — {group['description']}"}})
                 options = deliverable_options(ctx, code)
                 # Native dropdowns cannot have an empty options list.
                 if options:
@@ -58,9 +56,9 @@ def form(ctx):
                         'validations':{'required':False}})
             continue
         if item.get('id') == 'working_groups':
-            if source != 'working_groups' or item.get('type') != 'checkboxes':
-                raise Invalid('Working groups must be catalogue-backed checkboxes')
-            item['attributes']['options'] = [{'label':label} for label in group_options(ctx)]
+            if source != 'working_groups' or item.get('type') != 'dropdown' or not item['attributes'].get('multiple') or not item.get('validations',{}).get('required'):
+                raise Invalid('Working groups must be a required catalogue-backed multiple-selection dropdown')
+            item['attributes']['options'] = list(group_options(ctx))
         elif source is not None:
             raise Invalid('Unsupported options source')
         expanded.append(item)

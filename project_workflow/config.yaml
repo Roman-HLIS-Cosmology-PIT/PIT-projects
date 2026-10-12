@@ -194,19 +194,25 @@ form:
       description: One GitHub username without @.
     validations:
       required: true
-  - type: checkboxes
+  - type: dropdown
     id: working_groups
     attributes:
       label: Working groups
-      description: Select at least one working group. Deliverables are optional; choices for unselected groups are
-        ignored.
+      description: Select at least one working group. You may select several.
+      multiple: true
     validations:
       required: true
     options_from: working_groups
+  - type: markdown
+    attributes:
+      value: '## Deliverables
+
+
+        Deliverables selected for an unselected working group will be ignored.'
   - type: working_group_sections
     attributes:
       label: '{code} deliverables'
-      description: Optional. Select any deliverables for {code}; ignored unless this working group is checked above.
+      description: Optional. Select any deliverables for {code}.
   - type: dropdown
     id: phd_thesis
     attributes:
@@ -235,8 +241,7 @@ form:
     id: github_url
     attributes:
       label: Main GitHub repository
-      description: Optional https://github.com/OWNER/REPOSITORY URL. Accessible repositories are checked; private/inaccessible
-        ones are flagged for review.
+      description: Optional https://github.com/OWNER/REPOSITORY URL. Can be added later.
     validations:
       required: false
   - type: textarea

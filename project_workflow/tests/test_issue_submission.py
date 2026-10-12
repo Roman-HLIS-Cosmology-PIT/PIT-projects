@@ -27,7 +27,7 @@ def issue_fixture(**changes):
     config = load_context(data.__getitem__, paths=data)
     labels = current_labels(config)
     values = { "lead": "Alice Example", "lead_github_username": "alice",
-              "working_groups": "- [x] SCM — Shape and Color Measurement\n- [ ] CAS — Cosmological Analysis\n- [ ] CPIP — Pipeline",
+              "working_groups": "SCM — Shape and Color Measurement",
               "deliverables_SCM": "SCM-1", "deliverables_CAS": "_No response_", "deliverables_CPIP": "_No response_",
               "phd_thesis": "True", "slack_channel": "#scm-shapes",
               "summary": "Measure shear calibration.\n\n### Scientific goals\nAssess selection effects.",
@@ -221,12 +221,12 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(parse_yaml(project_yaml(record)),record)
 
     def test_multiple_groups_empty_deliverables_and_ignored_unchecked_values(self):
-        record=self.parse(issue_fixture(working_groups='- [x] SCM\n- [x] CAS\n- [ ] CPIP',deliverables_SCM='_No response_',deliverables_CAS='CAS-1',deliverables_CPIP='bogus'))
+        record=self.parse(issue_fixture(working_groups='SCM — Shape and Color Measurement, CAS — Catalogue And Statistics',deliverables_SCM='_No response_',deliverables_CAS='CAS-1',deliverables_CPIP='bogus'))
         self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':[]},{'code':'CAS','deliverable_ids':['CAS-1']}])
 
     def test_required_fields_and_choices_fail_closed(self):
-        for change in ({'lead':''},{'lead_github_username':''},{'working_groups':'- [ ] SCM'},
-                       {'working_groups':'- [x] UNKNOWN'},{'deliverables_SCM':'CAS-1'},
+        for change in ({'lead':''},{'lead_github_username':''},{'working_groups':'_No response_'},
+                       {'working_groups':'UNKNOWN'},{'deliverables_SCM':'CAS-1'},
                        {'phd_thesis':'bogus'},{'related_links':'javascript:alert(1)'},
                        {'lead_github_username':'@alice'},{'contributor_1_name':''}):
             with self.subTest(change=change),self.assertRaises(Invalid):self.parse(issue_fixture(**change))
@@ -254,7 +254,10 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(issue_intake.process(api,Teams(),12),'updated')
         self.assertEqual(len([x for x in api.writes if x[1]=='pulls']),1)
         self.assertEqual(set(api.refs),{'main','project-submissions/issue-12'})
-        self.assertEqual(api.issue['body'],raw)
+        from project_workflow.submission import submission_body
+        self.assertEqual(submission_body(api.issue),raw)
+        self.assertTrue(api.issue['body'].startswith('<!-- pit-project-summary:v2 -->'))
+        self.assertIn('**Project title**:',api.issue['body'])
         self.assertEqual(len(api.comments),1)
         self.assertIn('Closes #12',api.pr['body'])
         review=next(x[2] for x in api.writes if x[1].endswith('/requested_reviewers'))
@@ -345,3 +348,47 @@ class SubmissionTests(unittest.TestCase):
         self.assertNotIn('@someone',body);self.assertNotIn('Closes #99',body)
         self.assertNotIn('Fixes https://github.com',body)
         self.assertIn('Closes #12',body)
+
+class FormattingTests(unittest.TestCase):
+    def test_visible_summary_change_blocks_independent_validation(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.issue['body']=api.issue['body'].replace('**Project title**:', '**Project title changed**:')
+        ctx=load_context(api.base.__getitem__,paths=api.base)
+        with self.assertRaises(Invalid):proposal(api.issue,ctx,organization_member=True,is_sc=False)
+
+    def test_retry_recovers_after_formatting_before_branch_creation(self):
+        api=FakeAPI();raw=api.issue['body'];request=api.request
+        def interrupt(method,endpoint,payload=None):
+            if endpoint=='git/trees':raise OSError('Simulated interruption')
+            return request(method,endpoint,payload)
+        api.request=interrupt
+        with self.assertRaises(OSError):issue_intake.process(api,Teams(),12)
+        self.assertTrue(api.issue['body'].startswith('<!-- pit-project-summary:v2 -->'))
+        self.assertEqual(set(api.refs),{'main'})
+        api.request=request
+        self.assertEqual(issue_intake.process(api,Teams(),12),'created')
+        self.assertEqual(len(api.prs),1)
+        from project_workflow.submission import submission_body
+        self.assertEqual(submission_body(api.issue),raw)
+
+    def test_malformed_hidden_source_is_rejected(self):
+        from project_workflow.submission import submission_body
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.issue['body']=api.issue['body'].replace('pit-project-source:','pit-project-source:broken')
+        with self.assertRaises(Invalid):submission_body(api.issue)
+
+    def test_compressed_source_is_size_bounded(self):
+        import base64,zlib
+        from project_workflow.submission import submission_body,FORMATTED_MARKER
+        encoded=base64.b64encode(zlib.compress(b'x'*100000)).decode('ascii')
+        i=issue_fixture();i['body']=FORMATTED_MARKER+f'\n<!-- pit-project-source:{encoded} -->\n'
+        with self.assertRaises(Invalid):submission_body(i)
+
+    def test_large_submission_is_preserved_without_truncation(self):
+        import random,string
+        rng=random.Random(12)
+        description=''.join(rng.choices(string.ascii_letters+string.digits,k=45000))
+        api=FakeAPI(issue_fixture(summary=description));raw=api.issue['body']
+        self.assertEqual(issue_intake.process(api,Teams(),12),'created')
+        self.assertEqual(api.issue['body'],raw)
+        self.assertEqual(parse_yaml(api.data[api.pr['head']['sha']][project_path(12)])['summary'],description)

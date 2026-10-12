@@ -22,26 +22,29 @@ body:
     description: One GitHub username without @.
   validations:
     required: true
-- type: checkboxes
+- type: dropdown
   id: working_groups
   attributes:
     label: Working groups
-    description: Select at least one working group. Deliverables are optional; choices for unselected groups are
-      ignored.
+    description: Select at least one working group. You may select several.
+    multiple: true
     options:
-    - label: CAS — Catalogue And Statistics
-    - label: CPIP — Cosmological Parameter Inference Pipeline
-    - label: SCM — Shape and Color Measurement
+    - CAS — Catalogue And Statistics
+    - CPIP — Cosmological Parameter Inference Pipeline
+    - SCM — Shape and Color Measurement
   validations:
     required: true
 - type: markdown
   attributes:
-    value: '### CAS — Catalogue And Statistics'
+    value: '## Deliverables
+
+
+      Deliverables selected for an unselected working group will be ignored.'
 - type: dropdown
   id: deliverables_CAS
   attributes:
     label: CAS deliverables
-    description: Optional. Select any deliverables for CAS; ignored unless this working group is checked above.
+    description: Optional. Select any deliverables for CAS.
     multiple: true
     options:
     - CAS-1 — Photometric redshift inference
@@ -52,14 +55,11 @@ body:
     - CAS-6 — Observational systematics parametrizatin and priors
   validations:
     required: false
-- type: markdown
-  attributes:
-    value: '### CPIP — Cosmological Parameter Inference Pipeline'
 - type: dropdown
   id: deliverables_CPIP
   attributes:
     label: CPIP deliverables
-    description: Optional. Select any deliverables for CPIP; ignored unless this working group is checked above.
+    description: Optional. Select any deliverables for CPIP.
     multiple: true
     options:
     - CPI-1 — 3x2pt and cluster cosmology
@@ -72,14 +72,11 @@ body:
     - CPI-8 — Forecasting HLIS performance
   validations:
     required: false
-- type: markdown
-  attributes:
-    value: '### SCM — Shape and Color Measurement'
 - type: dropdown
   id: deliverables_SCM
   attributes:
     label: SCM deliverables
-    description: Optional. Select any deliverables for SCM; ignored unless this working group is checked above.
+    description: Optional. Select any deliverables for SCM.
     multiple: true
     options:
     - SCM-1 — Calibration
@@ -117,8 +114,7 @@ body:
   id: github_url
   attributes:
     label: Main GitHub repository
-    description: Optional https://github.com/OWNER/REPOSITORY URL. Accessible repositories are checked; private/inaccessible
-      ones are flagged for review.
+    description: Optional https://github.com/OWNER/REPOSITORY URL. Can be added later.
   validations:
     required: false
 - type: textarea

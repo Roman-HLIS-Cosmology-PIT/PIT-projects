@@ -207,7 +207,7 @@ class CatalogueExpansionTests(unittest.TestCase):
             'deliverables':[{'id':'NEW.1','title':'New science deliverable'}]})
         ctx=load_context(data.__getitem__,paths=data)
         fields={x.get('id'):x for x in form(ctx)['body'] if x.get('id')}
-        self.assertTrue(any(x['label'].startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
+        self.assertTrue(any(x.startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
         self.assertEqual(fields['deliverables_NEW']['attributes']['options'],['NEW.1 — New science deliverable'])
         self.assertTrue(fields['deliverables_NEW']['attributes']['multiple'])
         self.assertFalse(fields['deliverables_NEW']['validations']['required'])
@@ -218,12 +218,12 @@ class CatalogueExpansionTests(unittest.TestCase):
         ctx=load_context(data.__getitem__,paths=data)
         fields={x.get('id'):x for x in form(ctx)['body'] if x.get('id')}
         self.assertNotIn('deliverables_NEW',fields)
-        self.assertTrue(any(x['label'].startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
+        self.assertTrue(any(x.startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
 
     def test_empty_catalogue_can_be_selected_without_deliverables(self):
         data=source_data()
         data['working_groups/NEW.yaml']=yaml.safe_dump({'working_group':'NEW','description':'New group','deliverables':[]})
         ctx=load_context(data.__getitem__,paths=data)
-        issue=current_issue(working_groups='- [x] NEW')
+        issue=current_issue(working_groups='NEW — New group')
         record=proposal(issue,ctx,organization_member=True,is_sc=False)
         self.assertEqual(record['working_groups'],[{'code':'NEW','deliverable_ids':[]}])

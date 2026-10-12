@@ -16,11 +16,11 @@ import urllib.request
 from project_workflow.project_registry import Invalid, load_context
 from project_workflow.submission import (
     changed_files, is_submission_bot, issue_version, labelled,
-    number, project_path, project_yaml, proposal, submission_branch,
+    number, project_path, project_yaml, proposal, submission_branch, submission_body, FORMATTED_MARKER,
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
-from project_workflow.review import proposal_body, request_review, safe_text, summary_body
+from project_workflow.review import proposal_body, request_review, safe_text, formatted_issue_body
 from project_workflow.project_registry import parse_yaml, validate_record
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
@@ -206,6 +206,19 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
             raise Invalid('Proposal branch changed; retry')
         if fresh(api,issue,base_sha,ctx,teams) != record:
             raise Invalid('Requester permissions changed during processing; retry')
+        if not issue['body'].startswith(FORMATTED_MARKER):
+            rendered = formatted_issue_body(record,ctx,submission_body(issue))
+            # Preserve very long native submissions rather than exceeding the
+            # Issue body's API limit or silently truncating scientific content.
+            if len(rendered.encode('utf-8')) <= 65536:
+                fresh(api,issue,base_sha,ctx,teams)
+                updated = api.request('PATCH',f'issues/{issue_number}',{'body':rendered})
+                if (updated.get('body') != rendered or updated.get('title') != issue['title']
+                        or updated.get('user') != issue['user']):
+                    raise Invalid('Issue changed while formatting; inspect it before retrying')
+                issue = updated
+                if fresh(api,issue,base_sha,ctx,teams) != record:
+                    raise Invalid('Submission changed while formatting; retry')
         if old_record == record and old_commit['parents'][0]['sha'] == base_sha:
             head_sha = old_sha
         else:
@@ -235,7 +248,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         dispatch_validation(api,pr['number'])
         set_invalid(api,issue,False)
         message = '**Proposal validated.** [Review PR](https://github.com/' + api.repo + f"/pull/{pr['number']}). Review and acceptance are still required.\n\n"
-        message += summary_body(record,ctx)
+        if not issue['body'].startswith(FORMATTED_MARKER):
+            message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
         if warning:
             message += '\n**Note:** ' + safe_text(warning)
         if len(message) > 64000:

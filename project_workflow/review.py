@@ -1,7 +1,9 @@
 """Format proposed data for humans and route review requests from project_workflow/config.yaml."""
 from __future__ import annotations
 
+import base64
 import html
+import zlib
 import re
 from urllib.parse import quote
 
@@ -88,3 +90,14 @@ def proposal_body(record, ctx, repo, issue_number, warning=None):
     if len(text) > 64000:
         text = text[:63000] + f"\n\n*Preview shortened. The full project is in `projects/{record['project_id']}.yaml`.*\n"
     return text
+
+
+def formatted_issue_body(record, ctx, source):
+    """Display the readable summary while keeping the native answers hidden.
+
+    These are input data, not authority or a correction/edit mechanism. PR
+    validation checks both the visible rendering and the generated record.
+    """
+    from project_workflow.submission import FORMATTED_MARKER
+    encoded = base64.b64encode(zlib.compress(source.encode('utf-8'))).decode('ascii')
+    return FORMATTED_MARKER + '\n\n' + summary_body(record,ctx) + f'\n<!-- pit-project-source:{encoded} -->\n'

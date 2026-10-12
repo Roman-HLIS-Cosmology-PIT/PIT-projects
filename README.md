@@ -7,20 +7,20 @@ Project proposals are submitted through a GitHub Issue Form and reviewed through
 ## Submission and review
 
 1. Use the Issue title as the project title. Enter the required lead name, GitHub username, description and PhD answer. Ordinary members must submit as their own lead; SC members may submit on another person's behalf.
-2. Select one or more working-group checkboxes. Each group has its own optional deliverable menu, allowing several selections. A checked group may have no deliverables. Deliverables selected for unchecked groups are ignored.
+2. Select one or more working groups in the required multiple-selection dropdown. Each group has its own optional deliverable menu, allowing several selections. A selected group may have no deliverables. Deliverables selected for unselected groups are ignored.
 3. Submit and stay on the Issue page for the automated result. Every form submission is an **EP**. The workflow checks the actual Issue author's live organization membership, required information, usernames, contributor pairs, working groups, deliverables and URL syntax.
-4. A valid submission creates one project YAML file on `project-submissions/issue-<number>` and one PR. The bot posts a readable summary and requests review from the configured reviewer, currently **aguinot**. Retrying an unchanged submission reuses the same PR and branch.
+4. A valid submission creates one project YAML file on `project-submissions/issue-<number>` and one PR. The bot reformats the Issue body into a readable summary and requests review from the configured reviewer, currently **aguinot**. Retrying an unchanged submission reuses the same PR and branch.
 5. Merging the PR accepts the project and closes the Issue through `Closes #<number>`. Enable GitHub's **Automatically delete head branches** repository setting to remove merged branches.
 
-The workflow stores the Issue's creation timestamp as `submission.submitted_at`. There is no acceptance-date update or second PR. The original Issue body remains intact; no saved-answer database or state branch is needed.
+The workflow stores the Issue's creation timestamp as `submission.submitted_at`. There is no acceptance-date update or second PR. The Issue body displays the readable project summary. Its native form answers are retained in a hidden, compressed comment in that same body for validation and retry recovery. No saved-answer database, state branch, correction form or edit command is added. Very long submissions retain their original body if formatting would exceed GitHub’s size limit.
 
 If validation fails, the bot adds `invalid` and explains the errors. Close the Issue and use the New Project form again. There is no correction form, replacement-Issue chain, clipboard workaround or `/edit` command. Once the proposal branch exists, its submitted answers are fixed. Manual Issue edits are checked and block the PR if they change the proposal; they do not edit its YAML. Cancel and resubmit to change a proposal. The form cannot validate every free-text answer before submission.
 
 Closing a submission Issue before acceptance cancels it: the workflow closes its unmerged PR and removes only its verified submission branch. This cleanup works without a membership token. Reopening a cancelled submission does not resurrect it. Closing a PR alone keeps its branch; SC can reopen that PR. After acceptance, changes go through an SC-authored PR or an authorized direct main commit.
 
-### Working-group requirement
+### Working groups and deliverables
 
-The generated checkbox field includes group-level `validations.required: true`. GitHub's enforcement of “at least one checkbox” needs a live test; the workflow always enforces it after submission. GitHub cannot conditionally disable the deliverable menus. Menus start empty so optional deliverables are not selected accidentally. A group with an empty catalogue has a section but no dropdown.
+The working-group dropdown allows multiple selections, is required, and has no default. Actions also checks that at least one valid group was selected. One **Deliverables** section contains the separate optional dropdowns for each group. Its introduction explains that deliverables for unselected groups are ignored. GitHub cannot conditionally disable these menus; they start empty so optional deliverables are not selected accidentally. A group with an empty catalogue remains selectable but has no deliverable dropdown.
 
 ## Files and routine changes
 
@@ -67,26 +67,24 @@ Use `SC_TEAM_READ_TOKEN` with organization **Members: read**, scoped to the orga
 
 During testing keep `reviewers: [aguinot]`. Switching that setting to `steering_committee` later updates review routing and CODEOWNERS automatically. Also check repository/team notification settings if people have subscribed independently.
 
-## Install this cleanup
+## Install this update
 
-This is a breaking development update with no old-format support. The patch also converts the existing `P000006` test project to the grouped format, preserving its contents and submission date.
+This update replaces the checkbox form. Existing submissions made with that form are not migrated; close obsolete test Issues/PRs before installing, then submit through the new form.
 
-1. Apply the patch to the matching repository version and review `git diff`.
-2. Publish the cleanup to main. The old trusted validator and generator do not understand the new config/schema, so this installation needs an authorized direct main commit, or an administrator's one-time merge of the installation PR past the old check. Once installed, normal config updates work through either main commits or SC PRs.
-3. Confirm Actions has `SC_TEAM_READ_TOKEN` and permission to create PRs. The token's organization must approve its access if required. Collaborators retain Read access; SC retain appropriate administration/write access.
-4. Run **Project maintenance** on main and check its generated files and export artifacts. It also runs automatically after the publication push.
-5. Before installing, close or remove any old test submission Issues/PRs/branches you no longer need. Old correction Issues and saved-state branches are not migrated or cleaned up by this patch. Do not merge an old-format proposal after installation.
-6. For production, protect main with required SC/Code Owner review and the **Project policy** status. Configure Actions' generated-output handling as above, and enable automatic deletion of merged head branches.
+1. Apply the patch and review `git diff`. It is based on main commit `8b98d7fd62548a1cd5ffc5e5d3f75c80e9b65231`.
+2. Publish the update to main. The previously installed generator assumes checkboxes, so use an authorized direct main commit for this code update, or an administrator-assisted installation merge. Routine configuration/catalogue updates afterward still support both main commits and SC PRs.
+3. Run **Project maintenance** on main and check the generated form. It also runs automatically after your publication push.
+4. Use the live tests below. Review requests remain directed to `aguinot`; no new secret or permission is required.
 
 ## Test on GitHub
 
-- Open the New Project form and try submitting with no working groups selected. If GitHub blocks it, checkbox validation works; if it does not, the workflow must report the missing selection without creating a branch or PR.
-- Submit a valid EP with SCM and CAS selected, SCM deliverables selected, and CAS deliverables empty. Select a CPIP deliverable while leaving CPIP unchecked; it must be absent from the generated YAML. Check the summary, original submission date, reviewer `aguinot`, and successful **Project policy** status.
+- Open the New Project form and try submitting with no working groups selected. The required dropdown must block submission. Actions also rejects a missing selection if the Issue body is altered manually.
+- Submit a valid EP with SCM and CAS selected, SCM deliverables selected, and CAS deliverables empty. Select a CPIP deliverable while leaving CPIP unselected; it must be absent from the generated YAML. Check the formatted Issue body, original submission date, reviewer `aguinot`, and successful **Project policy** status.
 - Retry through **Project workflows → Run workflow → submit**, entering the Issue number. It must reuse its PR and branch.
 - Submit another valid project before merging the first. It must have its own Issue-number branch and PR.
 - Submit an invalid username or incomplete contributor pair. Expect one error comment, `invalid`, and no proposal branch/PR. Close the Issue and resubmit through the normal form.
 - Close an unmerged valid submission Issue. Its PR must close and its branch disappear. Merge another valid proposal: the Issue closes, the accepted file remains, and automatic branch deletion applies if enabled.
-- Change one catalogue through an SC PR or direct main commit. Maintenance must generate the updated form automatically. Adding a new group must add both a checkbox and its deliverable section.
+- Change one catalogue through an SC PR or direct main commit. Maintenance must generate the updated form automatically. Adding a new group must add a dropdown option and its deliverable menu.
 
 Optional local checks:
 
