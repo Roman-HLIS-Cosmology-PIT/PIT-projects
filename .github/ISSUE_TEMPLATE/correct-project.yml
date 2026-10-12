@@ -12,9 +12,11 @@ body:
     required: false
 - type: markdown
   attributes:
-    value: Leave the Changes needed box unchanged. Update your answers and check each dropdown. Dropdown defaults
-      are the same as in the New Project form. Empty optional text fields clear previous answers. **Keep previous
-      value** retains a long answer that could not fit in the link.
+    value: Leave the Changes needed box unchanged. Update your answers and check each dropdown. Description and
+      Related links start with **Keep previous value**. Leave that text to retain the saved answer, or replace it
+      with your new answer. Your previous answers are on the linked submission Issue. The bot’s message also provides
+      copyable blocks for Description and Related links. Copy a block and paste it here to edit it. Clearing an
+      optional field removes that answer. Dropdown defaults are the same as in the New Project form.
 - type: dropdown
   id: kind
   attributes:
@@ -101,10 +103,11 @@ body:
   validations:
     required: false
 - type: textarea
-  id: project_description
+  id: summary
   attributes:
     label: Description
     description: Describe the goals, approach and expected results. Markdown is supported.
+    value: Keep previous value
   validations:
     required: true
 - type: input
@@ -120,6 +123,7 @@ body:
   attributes:
     label: Related links
     description: Optional. One HTTPS URL per line. Do not include credentials or secret sharing tokens.
+    value: Keep previous value
   validations:
     required: false
 - type: markdown

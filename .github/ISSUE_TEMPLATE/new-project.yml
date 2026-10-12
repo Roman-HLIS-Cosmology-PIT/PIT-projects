@@ -94,7 +94,7 @@ body:
   validations:
     required: false
 - type: textarea
-  id: project_description
+  id: summary
   attributes:
     label: Description
     description: Describe the goals, approach and expected results. Markdown is supported.

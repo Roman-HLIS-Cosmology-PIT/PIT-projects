@@ -10,9 +10,9 @@ import secrets
 import time
 from urllib.parse import urlencode
 
-from project_workflow.issue_form import KEEP_VALUE, current_labels, form_identifier
+from project_workflow.issue_form import KEEP_VALUE, current_labels
 from project_workflow.project_registry import Invalid
-from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version, list_text, is_submission_bot
+from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version, is_submission_bot
 from project_workflow import workflow_state
 from project_workflow.review import FORMATTED_MARKER, summary_body
 
@@ -257,23 +257,25 @@ def correction_link(api, root, state, issue, values, ctx, *, error=None):
         request = {**request, 'root': root['number'], 'issued_at': time.time_ns()}
     params = {'template': 'correct-project.yml', 'title': values.get('name', issue.get('title', '')),
               'correction_notes': correction_notes(ctx, error)}
-    identifiers = {item['id']: form_identifier(item) for item in ctx.form_source['body']
-                   if item.get('id') and item.get('type') in {'input', 'textarea'}}
-    for key, identifier in identifiers.items():
-        params[identifier] = list_text(values.get(key, '')) if key == 'related_links' else optional(values.get(key, ''))
+    # Omit project textareas entirely, including empty query parameters.
+    # The correction template supplies Keep previous value as its normal
+    # default, and resolved_values retains the authenticated saved answer.
+    identifiers = [item['id'] for item in ctx.form_source['body']
+                   if item.get('id') and item.get('type') == 'input']
+    for key in identifiers:
+        params[key] = optional(values.get(key, ''))
     suffix = '\n\n' + reference_comment(root['number'], issue['number'], request['token'])
     params['correction_notes'] = params['correction_notes'] + suffix
     prefix = f'https://github.com/{api.repo}/issues/new?'
     url = prefix + urlencode(params)
     omitted = []
-    candidates = sorted(identifiers, key=lambda k: len(params[identifiers[k]]), reverse=True)
+    candidates = sorted(identifiers, key=lambda k: len(params[k]), reverse=True)
     for key in candidates:
         if len(url) <= MAX_URL_LENGTH:
             break
-        identifier = identifiers[key]
-        if len(params[identifier]) <= len(KEEP_VALUE):
+        if len(params[key]) <= len(KEEP_VALUE):
             continue
-        params[identifier] = KEEP_VALUE
+        params[key] = KEEP_VALUE
         omitted.append(current_labels(ctx)[key])
         url = prefix + urlencode(params)
     if len(url) > MAX_URL_LENGTH:

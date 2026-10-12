@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from project_workflow import issue_intake, revisions, validate_pr
-from project_workflow.issue_form import KEEP_VALUE, form, form_identifier
+from project_workflow.issue_form import KEEP_VALUE, form
 from project_workflow.project_registry import Invalid, load_context, parse_yaml
 from project_workflow.submission import project_path
 from test_issue_submission import BASE_SHA, BOT, FakeAPI, Teams, issue_fixture
@@ -40,14 +40,13 @@ class CorrectionTests(unittest.TestCase):
             if item.get('type') == 'markdown':
                 continue
             key = item['id']
-            values[key] = {'kind': 'EP', 'working_group': 'SCM', 'deliverable_ids': 'SCM / SCM-001', 'phd_thesis': 'True'}[key] if item['type'] == 'dropdown' else params.get(key, '') or '_No response_'
+            values[key] = {'kind': 'EP', 'working_group': 'SCM', 'deliverable_ids': 'SCM / SCM-001', 'phd_thesis': 'True'}[key] if item['type'] == 'dropdown' else params.get(key, item['attributes'].get('value', '')) or '_No response_'
         title = changes.pop('title', params['title'])
         if 'correction_notes' in changes:
             reference = revisions.REFERENCE.search(params.get('correction_notes', ''))
             if reference:
                 changes['correction_notes'] += '\n\n' + reference[0].strip()
-        identifiers = {item['id']: form_identifier(item) for item in self.ctx.form_source['body'] if item.get('id')}
-        values.update({identifiers.get(key, key): value for key, value in changes.items()})
+        values.update(changes)
         issue = {**issue_fixture(), 'number': n, 'title': title, 'created_at': '2026-10-12T12:00:00Z',
                  'labels': [{'name': 'project-correction'}],
                  'body': '\n\n'.join('### ' + item['attributes']['label'] + '\n\n' + values[item['id']]
@@ -84,7 +83,9 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
         self.assertEqual(set(params) & {'original_issue', 'previous_issue', 'correction_token', 'previous_kind', 'previous_deliverable_ids'}, set())
-        self.assertNotIn('🔴', params['project_description'])
+        self.assertNotIn('summary', params)
+        self.assertNotIn('project_description', params)
+        self.assertNotIn('related_links', params)
         self.assertIn('Deliverables:', params['correction_notes'])
         self.assertIn('CAS-001 does not belong to SCM', params['correction_notes'])
         self.assertIn('Contributor 1 GitHub username:', params['correction_notes'])
@@ -94,6 +95,7 @@ class CorrectionTests(unittest.TestCase):
         self.assertIn('CAS-001 — Other deliverable 🔴', body)
         self.assertNotIn('SCM-001 — Test deliverable 🔴', body)
         self.assertEqual(len(self.api.comments), 1)
+        self.assertIn('```text\nMeasure shear calibration.', body)
         self.replacement(params, contributor_1_github_username='bob')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.api.issue['state'], 'closed')
@@ -203,7 +205,9 @@ class CorrectionTests(unittest.TestCase):
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(params['project_description'], KEEP_VALUE)
+        self.assertNotIn('summary', params)
+        self.assertNotIn('project_description', params)
+        self.assertNotIn('related_links', params)
         original = self.record()['summary']
         self.replacement(params, slack_channel='_No response_', related_links='_No response_')
         self.assertEqual(self.process(13), 'updated')
@@ -246,7 +250,7 @@ class CorrectionTests(unittest.TestCase):
         self.api.issue['body'] = self.api.issue['body'].replace('### Description', '### Wrong heading')
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
-        self.assertEqual(params['project_description'], '')
+        self.assertNotIn('summary', params)
         self.replacement(params, summary='Recovered description', kind='EP')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.record()['summary'], 'Recovered description')
@@ -315,28 +319,52 @@ class CorrectionTests(unittest.TestCase):
         self.assertNotIn('project-workflow/state', self.api.refs)
         self.assertIsNone(self.api.pr)
 
-    def test_clean_prefills_allow_description_and_links_to_be_replaced(self):
-        self.api.issue = issue_fixture(summary='Test', related_links='```text\n\n```')
+    def test_editable_multiline_defaults_preserve_replace_and_clear_answers(self):
+        self.api.issue = issue_fixture(summary='Test', related_links='```text\nhttps://example.org/original\n```')
         self.assertEqual(self.process(), 'created')
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
         self.assertNotIn('summary', params)
-        self.assertEqual(params['project_description'], 'Test')
-        self.assertEqual(params['related_links'], '')
+        self.assertNotIn('project_description', params)
+        self.assertNotIn('related_links', params)
         self.assertIsNotNone(revisions.REFERENCE.search(params['correction_notes']))
-        self.replacement(params, summary='Changed description', related_links='https://example.org/new')
+        reply = next(c['body'] for c in self.api.comments if c['body'].startswith('<!-- pit-project-edit:v1 -->'))
+        self.assertIn('```text\nTest\n```', reply)
+        self.assertIn('```text\nhttps://example.org/original\n```', reply)
+        self.replacement(params)
         self.assertEqual(self.process(13), 'updated')
+        self.assertEqual(self.record()['summary'], 'Test')
+        self.assertEqual(self.record()['related_links'], ['https://example.org/original'])
+        self.assertEqual(self.policy(), 0)
+        self.command(13)
+        self.replacement(self.params(13, marker='<!-- pit-project-edit:v1 -->'), n=14,
+                         summary='Changed description', related_links='https://example.org/new')
+        self.assertEqual(self.process(14), 'updated')
         self.assertEqual(self.record()['summary'], 'Changed description')
         self.assertEqual(self.record()['related_links'], ['https://example.org/new'])
         self.assertNotIn('pit-correction:', self.record()['summary'])
         self.assertEqual(self.policy(), 0)
-        self.command(13)
-        self.replacement(self.params(13, marker='<!-- pit-project-edit:v1 -->'), n=14,
+        self.command(14)
+        self.replacement(self.params(14, marker='<!-- pit-project-edit:v1 -->'), n=15,
                          summary='Another description', related_links='_No response_')
-        self.assertEqual(self.process(14), 'updated')
+        self.assertEqual(self.process(15), 'updated')
         self.assertEqual(self.record()['summary'], 'Another description')
         self.assertEqual(self.record()['related_links'], [])
         self.assertEqual(self.policy(), 0)
+
+    def test_copy_blocks_preserve_literal_markdown_and_never_offer_truncated_answers(self):
+        from project_workflow.review import copy_previous_answers
+        source = '# Science\n@steering-committee\nCloses #99\n```python\nprint("example")\n```\n</details>'
+        block = copy_previous_answers({'summary': source, 'related_links': '```text\nhttps://example.org/a\n```'})
+        self.assertIn('````text\n' + source + '\n````', block)
+        self.assertIn('```text\nhttps://example.org/a\n```', block)
+        self.assertNotIn('&#64;', block)
+        self.assertNotIn('&#35;', block)
+        limited = copy_previous_answers({'summary': 'long answer '*1000, 'related_links': 'https://example.org/a'}, max_chars=1500)
+        self.assertLessEqual(len(limited), 1500)
+        self.assertNotIn('long answer', limited)
+        self.assertIn('```text\nhttps://example.org/a\n```', limited)
+        self.assertEqual(limited.count('<details>'), limited.count('</details>'))
 
 
 if __name__ == '__main__':

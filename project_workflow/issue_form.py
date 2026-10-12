@@ -53,15 +53,6 @@ def deliverable_options(ctx):
 CONTRIBUTOR_FIELD = re.compile(r"contributor_([1-9][0-9]*)_(name|github_username)\Z")
 
 
-def form_identifier(item):
-    """The browser control may use a distinct ID from the stored field key."""
-    identifier = item.get('form_id', item.get('id'))
-    if identifier is not None and (not isinstance(identifier, str)
-            or not re.fullmatch(r'[A-Za-z0-9_-]+', identifier)):
-        raise Invalid('Form control IDs must use letters, digits, underscores or hyphens')
-    return identifier
-
-
 def current_labels(ctx):
     source = ctx.form_source
     if not isinstance(source, dict) or not isinstance(source.get("body"), list):
@@ -113,9 +104,6 @@ def form(ctx, *, correction=False):
             if bindings.get(item.get("id")) != source or "options" in item.get("attributes", {}):
                 raise Invalid("options_from must reference the field's catalogue without duplicate options")
             item["attributes"]["options"] = choices[source]
-        if item.get('type') != 'markdown':
-            item['id'] = form_identifier(item)
-        item.pop('form_id', None)
     if correction:
         spec["name"] = "Correct or Edit Project"
         spec["description"] = "Replace a submission using the link provided by the automation."
@@ -124,13 +112,20 @@ def form(ctx, *, correction=False):
                  "attributes": {"label": CORRECTION_NOTES_LABEL}, "validations": {"required": False}},
                 {"type": "markdown", "attributes": {"value":
                  "Leave the Changes needed box unchanged. Update your answers and check each dropdown. "
-                 "Dropdown defaults are the same as in the New Project form. Empty optional text fields clear previous answers. "
-                 "**Keep previous value** retains a long answer that could not fit in the link."}}]
+                 "Description and Related links start with **Keep previous value**. Leave that text to retain "
+                 "the saved answer, or replace it with your new answer. Your previous answers are on the linked "
+                 "submission Issue. The bot’s message also provides copyable blocks for Description and Related links. "
+                 "Copy a block and paste it here to edit it. Clearing an optional field removes that answer. "
+                 "Dropdown defaults are the same as in the New Project form."}}]
         for item in spec["body"]:
             if item.get("type") == "markdown" and item is spec["body"][0]:
                 continue
             if item.get("type") == "dropdown":
                 item["attributes"]["description"] = "Check or select again for this submission."
+            elif item.get('type') == 'textarea':
+                # Use a normal template default. URL-prefilled rich textareas
+                # currently refuse edits in the submitter's GitHub browser.
+                item['attributes']['value'] = KEEP_VALUE
             body.append(item)
         spec["body"] = body
     validate_form(yaml.safe_dump(spec), ctx, correction=correction)

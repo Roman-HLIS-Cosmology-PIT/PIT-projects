@@ -260,7 +260,6 @@ form:
       required: false
   - type: textarea
     id: summary
-    form_id: project_description
     attributes:
       label: Description
       description: Describe the goals, approach and expected results. Markdown is supported.

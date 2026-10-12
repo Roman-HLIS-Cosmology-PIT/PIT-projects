@@ -59,6 +59,45 @@ def request_review(api, pr, ctx):
 FORMATTED_MARKER = "<!-- pit-project-summary:v1 -->"
 
 
+def copy_previous_answers(values, *, max_chars=64000):
+    """Complete source blocks get GitHub's native copy controls.
+
+    Pick fences longer than every submitted backtick run so raw Markdown,
+    mentions and HTML remain literal source. Never offer a partial answer as
+    a copy block when the comment size limit requires a shorter message.
+    """
+    from project_workflow.submission import list_text, optional
+    sources = {'summary': optional(values.get('summary', '')),
+               'related_links': list_text(values.get('related_links', ''))}
+    opening = '<details>\n<summary><strong>Copy previous description and related links</strong></summary>\n\n'
+    instructions = ('Use a block’s copy icon, then paste into the matching correction field, '
+                    'replacing **Keep previous value**. Leave **Keep previous value** to retain an answer.\n\n')
+    closing = '\n</details>'
+    labels = {'summary': '**Previous description**', 'related_links': '**Previous related links**'}
+    parts = {key: ('*This answer is too long to include a complete copy here. '
+                   'Leave **Keep previous value** to retain it; see the previous submission Issue to view it.*'
+                   if source else '*No previous answer was provided.*') for key, source in sources.items()}
+    def render():
+        return opening + instructions + '\n\n'.join(labels[key] + '\n\n' + parts[key] for key in sources) + closing
+    remaining = max_chars - len(render())
+    blocks = {}
+    for key, source in sources.items():
+        if source:
+            fence = '`' * max(3, 1 + max((len(run) for run in re.findall(r'`+', source)), default=0))
+            blocks[key] = fence + 'text\n' + source + '\n' + fence
+    # Include short answers first, so a long description does not crowd out
+    # the related links. The final display order still starts with Description.
+    for key in sorted(blocks, key=lambda key: len(blocks[key])):
+        cost = len(blocks[key]) - len(parts[key])
+        if cost <= remaining:
+            parts[key] = blocks[key]
+            remaining -= cost
+    text = render()
+    if len(text) > max_chars:
+        return ''
+    return text
+
+
 def summary_body(values, ctx, *, error=None):
     """One layout for Issue bodies, error feedback and PR summaries."""
     from project_workflow.issue_form import CONTRIBUTOR_FIELD, deliverable_value, option_value

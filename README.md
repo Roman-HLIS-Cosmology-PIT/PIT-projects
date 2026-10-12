@@ -136,7 +136,22 @@ Deliverables: CAS-1 does not belong to SCM. Select a deliverable from your chose
 Contributor 2 GitHub username: Fill both contributor name and GitHub username, or leave both blank.
 ```
 
-Text answers are prefilled where the native form supports it. Correction dropdowns
+Single-line answers are prefilled. In corrections, Description and Related links
+start with **Keep previous value** from the template itself. Leave that text to
+retain the authenticated saved answer, or replace it with the complete new answer.
+Clearing Related links removes the links. The previous answers are visible on the
+submission Issue and in error feedback. Project textareas are omitted from the
+correction URL, including empty parameters, to avoid the reported editing freeze.
+Correction feedback and `/edit` replies include a collapsible **Copy previous
+description and related links** section. Expand it and use GitHub's native copy
+icon on each text block. Description copies its original Markdown source; links
+copy one URL per line. Paste into the matching form field, replacing **Keep
+previous value**, then edit. Pasting is manual; native forms do not support our
+own clipboard or paste buttons. These blocks stay in the existing feedback/edit
+reply, with no extra bot comment. If an answer cannot fit completely within
+GitHub's comment size limit, the message explains that it is omitted from the
+copy section; **Keep previous value** still retains the complete saved answer.
+Correction dropdowns
 use exactly the same configured defaults as the New Project form (currently EP
 and False for kind and PhD thesis); check the selections before submitting.
 Groups/deliverables retain the source defaults, including an unset default where
@@ -147,9 +162,9 @@ or grant permission. Clearing an optional text field clears that answer.
 GitHub's native forms have no hidden inputs. A short routing reference is
 therefore appended as an HTML comment in the **Changes needed** guidance box.
 Leave that box unchanged. It is visible in the guidance editor but is removed
-from the rendered Issue, PR summary and project YAML. The project description
-contains only project text and can be replaced freely; related links use an
-ordinary editable textarea and an empty list appears as an empty field. It carries no credential. Its contents are never trusted as authority:
+from the rendered Issue, PR summary and project YAML. Description and Related
+links use the template's editable retention default described above. The routing
+reference carries no credential. Its contents are never trusted as authority:
 the workflow checks the issued reference, source version, live organization
 membership and original author's numeric GitHub identity. Removing or changing
 it rejects an unactivated correction instead of redirecting another proposal.
@@ -178,18 +193,12 @@ Do not edit superseded Issues: their frozen content protects revision history.
 
 Both forms share `form.body` and the working-group catalogues. Change shared
 wording, labels, contributor slots or the closing notice in the single config.
-The Description control uses `form_id: project_description` for its browser ID
-and correction-link parameter; its canonical field and project YAML key remain
-`summary`. This is a workaround for the reported editor freeze when the old
-`summary=...` URL parameter is present. Native GitHub browser behavior must be
-confirmed after installation; offline parsing checks cannot reproduce it.
-Other form controls can optionally specify `form_id` in the same source config
-without changing their stored field keys. Working group and Deliverables now
-explicitly default to their first option in both forms; check them when correcting.
+Description uses the canonical form ID and YAML key `summary`. Working group and Deliverables explicitly
+default to their first option in both forms; check them when correcting.
 Native GitHub checks simple required fields where supported; membership, schema
 and catalogue validation run afterward. There are no cascading dropdowns.
-Long text that cannot fit in a correction link is replaced by **Keep previous
-value**, which retains its complete saved answer. Replace that sentinel, while
+Long single-line text that cannot fit in a correction link is replaced by **Keep
+previous value**, which retains its complete saved answer. Replace that sentinel, while
 leaving the Changes needed box unchanged, to change the answer.
 Very large displays may be shortened to fit GitHub; saved answers remain complete.
 
@@ -366,13 +375,15 @@ main. Do not change tokens or loosen policy to work around a stale run.
 
 ## Installing this update
 
-Apply the incremental `PIT-projects-description-prefill.patch` to main commit
-`7ca5fcd720d98de53a844add8d98ae12db6a8170`. It includes the dropdown-default patch,
-so apply this combined patch only. Existing project YAML is unchanged.
+Apply the combined `PIT-projects-copyable-corrections.patch` to main commit
+`75b12b3efbf30ee54a5a75f6da409da089eb9d13`, which already includes the prior
+Description and dropdown patches. This patch includes and replaces the unapplied
+`PIT-projects-editable-fields.patch`; apply this new patch only. Existing project
+YAML is unchanged. Run these commands from the repository root after downloading:
 
 ```bash
-git apply --check /path/to/PIT-projects-description-prefill.patch
-git apply /path/to/PIT-projects-description-prefill.patch
+git apply --check ~/Downloads/PIT-projects-copyable-corrections.patch
+git apply ~/Downloads/PIT-projects-copyable-corrections.patch
 ```
 
 Publish through your normal main commit or SC-authored PR. After publication,
@@ -385,10 +396,13 @@ Routine configuration edits still need only one source-file change and generate
 outputs automatically on main or the same SC PR.
 
 Request a fresh correction/edit link from an **open** submission. Existing links
-still contain `summary=...` and will not prefill the renamed Description control.
-Confirm that Description is prefilled and accepts typing before submitting;
-then check that the same proposal PR stores the changed answer under `summary`.
-The editor workaround needs this native-browser check: offline checks verify
+still contain textarea parameters and retain the reported editing problem.
+Confirm that Description and Related links show an editable **Keep previous
+value** before submitting. Leave it untouched and verify that saved answers are
+retained; then use a fresh edit link, replace it with a changed description/link
+list, and verify that the same PR updates. Clear Related links in another edit
+and verify that the stored list becomes empty. New Project fields stay blank.
+This update needs this native-browser check: offline checks verify
 link generation, answer parsing and PR reuse, rather than GitHub's editor state.
 
 Keep the existing labels, membership secret and Actions settings. Reviews still

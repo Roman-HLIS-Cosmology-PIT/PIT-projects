@@ -20,7 +20,7 @@ from project_workflow.submission import (
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
-from project_workflow.review import proposal_body, request_review, safe_text, summary_body
+from project_workflow.review import proposal_body, request_review, safe_text, summary_body, copy_previous_answers
 from project_workflow import revisions, workflow_state
 from project_workflow.submission import correction_issue, resolved_values
 
@@ -265,6 +265,12 @@ def process_active(api, teams, issue, root, state, previous_values, *, repo_chec
             if not exc.fields:
                 actions += "\n\n" + safe_text(str(exc), markdown=True)
             body = summary_body(values, ctx, error=exc)
+            # Reserve room for the readable overview while offering complete,
+            # copyable source in this same feedback comment.
+            copy_text = copy_previous_answers(values, max_chars=max(0,
+                64000 - len(intro + opening + closing + actions + '\n\n') - min(len(body), 12000)))
+            if copy_text:
+                actions += '\n\n' + copy_text
             # Keep the container closed and its action link visible even when
             # GitHub's comment limit requires shortening a very long summary.
             budget = 64000 - len(intro + opening + closing + actions)
@@ -377,6 +383,9 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, edit_com
             message = f"[Edit this submission](<{url}>)\n\nSubmitting this form creates a replacement Issue and updates the existing PR. Opening this link leaves the current proposal unchanged."
             if omitted:
                 message += "\n\nLong answers are retained through **Keep previous value**. Replace that value to change an answer."
+            copy_text = copy_previous_answers(values, max_chars=max(0, 64000 - len(message + '\n\n')))
+            if copy_text:
+                message += '\n\n' + copy_text
             feedback(api, issue_number, message, marker='<!-- pit-project-edit:v1 -->', request=request)
             return 'edit-requested'
         if correction_issue(issue):
