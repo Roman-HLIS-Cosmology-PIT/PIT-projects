@@ -11,7 +11,7 @@ from project_workflow.submission import proposal
 from project_workflow.sync_generated import synchronize
 from test_issue_submission import BASE_SHA, FakeAPI, Teams
 from test_registry import source_data
-from test_submission_updates import current_issue
+from test_issue_submission import issue_fixture as current_issue
 
 HEAD_SHA = "b" * 40
 
@@ -82,7 +82,7 @@ class GenerationTests(unittest.TestCase):
         self.api.source("working_groups/SCM.yaml", lambda d: d["deliverables"].append({"id": "SCM-NEW", "title": "New deliverable"}))
         self.run_sync()
         spec = yaml.safe_load(self.api.data[self.api.pr["head"]["sha"]][".github/ISSUE_TEMPLATE/new-project.yml"])
-        field = next(f for f in spec["body"] if f.get("id") == "deliverable_ids")
+        field = next(f for f in spec["body"] if f.get("id") == "deliverables_SCM")
         self.assertTrue(any("SCM-NEW" in x for x in field["attributes"]["options"]))
 
     def test_review_source_updates_codeowners_and_runtime_routing(self):
@@ -93,43 +93,15 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(ctx.review_owners, ("@test-org/steering-committee",))
         self.assertIn("* @test-org/steering-committee", head[".github/CODEOWNERS"])
 
-    def test_kind_rules_populate_form_and_schema(self):
-        self.api.source("policy", lambda d: d["kinds"].update(TEST={"member_can_create": False, "member_can_claim": False, "allow_unassigned": True}))
-        self.run_sync()
-        head = self.api.data[self.api.pr["head"]["sha"]]
-        self.assertIn("TEST", load_context(head.__getitem__, paths=head).schema["properties"]["kind"]["enum"])
-        spec = yaml.safe_load(head[".github/ISSUE_TEMPLATE/new-project.yml"])
-        self.assertIn("TEST", next(f for f in spec["body"] if f.get("id") == "kind")["attributes"]["options"])
 
     def test_custom_label_is_used_by_submission_parser(self):
         def rename(data):
             next(f for f in data["body"] if f.get("id") == "summary")["attributes"]["label"] = "Scientific goals"
         self.api.source("form", rename)
         ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
-        issue = current_issue()
+        issue = current_issue(summary="Science description.")
         issue["body"] = issue["body"].replace("### Description\n", "### Scientific goals\n")
         self.assertEqual(proposal(issue, ctx, organization_member=True, is_sc=False)["summary"], "Science description.")
-    def test_descriptive_kind_options_keep_stable_codes_and_permissions(self):
-        self.api.source("policy", lambda d: d["kinds"]["KEY"].pop("description", None))
-        self.api.source("policy", lambda d: d["kinds"]["EP"].update(description="Enhancing Project"))
-        self.api.source("policy", lambda d: d["kinds"]["CPP"].update(description="Critical Path Project"))
-        self.run_sync()
-        head = self.api.data[self.api.pr["head"]["sha"]]
-        ctx = load_context(head.__getitem__, paths=head)
-        options = next(f for f in form(ctx)["body"] if f.get("id") == "kind")["attributes"]["options"]
-        self.assertIn("EP - Enhancing Project", options)
-        self.assertIn("CPP - Critical Path Project", options)
-        self.assertIn("KEY", options)
-        self.assertEqual(ctx.schema["properties"]["kind"]["enum"], ["EP", "CPP", "KEY"])
-        for label in ("EP", "EP - Enhancing Project", "EP — Previous wording"):
-            issue = current_issue()
-            issue["body"] = issue["body"].replace("### Project kind\n\nEP", "### Project kind\n\n" + label)
-            self.assertEqual(proposal(issue, ctx, organization_member=True, is_sc=False)["kind"], "EP")
-        issue = current_issue()
-        issue["body"] = issue["body"].replace("### Project kind\n\nEP", "### Project kind\n\nCPP - Critical Path Project")
-        with self.assertRaises(Invalid):
-            proposal(issue, ctx, organization_member=True, is_sc=False)
-
     def test_kind_description_does_not_relax_policy_validation(self):
         for edit in (lambda rules: rules.update(description=False),
                      lambda rules: rules.update(description=" "),
@@ -150,8 +122,8 @@ class GenerationTests(unittest.TestCase):
         self.api.source("form", add_slot)
         ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
         self.assertTrue(any(f.get("id") == "contributor_6_name" for f in form(ctx)["body"]))
-        # Previously created Issues have no slot 6 and remain editable.
-        old = current_issue()
+        # Empty contributor pairs are optional; adding a pair needs only the source edit.
+        old = current_issue(contributor_1_name="_No response_", contributor_1_github_username="_No response_")
         self.assertEqual(proposal(old, ctx, organization_member=True, is_sc=False)["contributors"], [])
         old["body"] += "\n\n### Contributor 6 name\n\nCarol\n\n### Contributor 6 GitHub username\n\ncarol"
         self.assertEqual(proposal(old, ctx, organization_member=True, is_sc=False)["contributors"], [{"name": "Carol", "github_username": "carol"}])
@@ -227,3 +199,31 @@ class GenerationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CatalogueExpansionTests(unittest.TestCase):
+    def test_new_group_and_deliverable_require_only_catalogue_change(self):
+        data=source_data()
+        data['working_groups/NEW.yaml']=yaml.safe_dump({'working_group':'NEW','description':'New science group',
+            'deliverables':[{'id':'NEW.1','title':'New science deliverable'}]})
+        ctx=load_context(data.__getitem__,paths=data)
+        fields={x.get('id'):x for x in form(ctx)['body'] if x.get('id')}
+        self.assertTrue(any(x['label'].startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
+        self.assertEqual(fields['deliverables_NEW']['attributes']['options'],['NEW.1 — New science deliverable'])
+        self.assertTrue(fields['deliverables_NEW']['attributes']['multiple'])
+        self.assertFalse(fields['deliverables_NEW']['validations']['required'])
+
+    def test_empty_catalogue_adds_checkbox_without_empty_dropdown(self):
+        data=source_data()
+        data['working_groups/NEW.yaml']=yaml.safe_dump({'working_group':'NEW','description':'New group','deliverables':[]})
+        ctx=load_context(data.__getitem__,paths=data)
+        fields={x.get('id'):x for x in form(ctx)['body'] if x.get('id')}
+        self.assertNotIn('deliverables_NEW',fields)
+        self.assertTrue(any(x['label'].startswith('NEW —') for x in fields['working_groups']['attributes']['options']))
+
+    def test_empty_catalogue_can_be_selected_without_deliverables(self):
+        data=source_data()
+        data['working_groups/NEW.yaml']=yaml.safe_dump({'working_group':'NEW','description':'New group','deliverables':[]})
+        ctx=load_context(data.__getitem__,paths=data)
+        issue=current_issue(working_groups='- [x] NEW')
+        record=proposal(issue,ctx,organization_member=True,is_sc=False)
+        self.assertEqual(record['working_groups'],[{'code':'NEW','deliverable_ids':[]}])

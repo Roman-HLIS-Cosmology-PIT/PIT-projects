@@ -5,13 +5,13 @@ Project ID:
 All content here is visible to the collaboration. Include only information
 appropriate for that audience; handle confidential matters outside this repo.
 
-Operation: new project / claim CPP / update project / administrative change
+Operation: new project / update project / administrative change
 
 ## SC review
 
 - [ ] Project details include the lead's name and GitHub username, and each contributor's name and GitHub username.
 - [ ] Names match the intended accounts; unassigned CPP/KEY lead fields are both null.
-- [ ] Working group and deliverables are appropriate.
+- [ ] Working groups and their deliverables are appropriate.
 - [ ] Project kind is appropriate; CPP/KEY declarations are SC decisions.
 - [ ] The `Project policy` check passes.
 

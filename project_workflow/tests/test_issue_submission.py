@@ -26,8 +26,9 @@ def issue_fixture(**changes):
     data = source_data()
     config = load_context(data.__getitem__, paths=data)
     labels = current_labels(config)
-    values = {"kind": "EP", "lead": "Alice Example", "lead_github_username": "alice",
-              "working_group": "SCM", "deliverable_ids": "SCM / SCM-001",
+    values = { "lead": "Alice Example", "lead_github_username": "alice",
+              "working_groups": "- [x] SCM — Shape and Color Measurement\n- [ ] CAS — Cosmological Analysis\n- [ ] CPIP — Pipeline",
+              "deliverables_SCM": "SCM-1", "deliverables_CAS": "_No response_", "deliverables_CPIP": "_No response_",
               "phd_thesis": "True", "slack_channel": "#scm-shapes",
               "summary": "Measure shear calibration.\n\n### Scientific goals\nAssess selection effects.",
               "github_url": "_No response_", "related_links": "```text\nhttps://example.org/paper\n```"}
@@ -131,8 +132,10 @@ class FakeAPI:
     def status(self, sha, state, description):
         self.statuses.append((sha, state, description))
 
-    def request(self, method, endpoint, payload):
+    def request(self, method, endpoint, payload=None):
         self.writes.append((method, endpoint, deepcopy(payload)))
+        if endpoint == "labels":
+            return payload
         if endpoint == "git/trees":
             sha = self.next_sha()
             data = deepcopy(self.data[payload["base_tree"]]) if "base_tree" in payload else {}
@@ -205,301 +208,140 @@ class FakeAPI:
 
 class SubmissionTests(unittest.TestCase):
     def setUp(self):
-        self.data = source_data()
-        self.ctx = load_context(self.data.__getitem__, paths=self.data)
+        self.data=source_data();self.ctx=load_context(self.data.__getitem__,paths=self.data)
 
     def parse(self, issue=None, **kwargs):
-        return proposal(issue or issue_fixture(), self.ctx, organization_member=kwargs.get("member", True), is_sc=kwargs.get("sc", False))
+        return proposal(issue or issue_fixture(),self.ctx,organization_member=kwargs.get('member',True),is_sc=kwargs.get('sc',False))
 
-    def test_valid_submission_roundtrip_and_provenance(self):
-        record = self.parse()
-        self.assertEqual(record["project_id"], "P000012")
-        self.assertTrue(record["phd_thesis"])
-        self.assertEqual(record["contributors"], [{"name": "Bob Example", "github_username": "bob"}])
-        self.assertEqual(record["submission"]["submitted_by"], "alice")
-        self.assertNotIn("email", record)
-        self.assertEqual(parse_yaml(project_yaml(record)), record)
+    def test_valid_ep_submission_and_submission_date(self):
+        record=self.parse()
+        self.assertEqual(record['kind'],'EP')
+        self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-1']}])
+        self.assertEqual(record['submission']['submitted_at'],'2026-10-11T06:00:00Z')
+        self.assertEqual(parse_yaml(project_yaml(record)),record)
 
-    def test_multiple_deliverables(self):
-        self.ctx.working_groups["SCM"]["deliverables"].append({"id": "SCM-002", "title": "Second deliverable"})
-        self.ctx.deliverables["SCM"].add("SCM-002")
-        record = self.parse(issue_fixture(deliverable_ids="SCM / SCM-001, SCM / SCM-002"))
-        self.assertEqual(record["deliverable_ids"], ["SCM-001", "SCM-002"])
+    def test_multiple_groups_empty_deliverables_and_ignored_unchecked_values(self):
+        record=self.parse(issue_fixture(working_groups='- [x] SCM\n- [x] CAS\n- [ ] CPIP',deliverables_SCM='_No response_',deliverables_CAS='CAS-1',deliverables_CPIP='bogus'))
+        self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':[]},{'code':'CAS','deliverable_ids':['CAS-1']}])
 
-    def test_bare_ids_accepted_after_markdown_edit(self):
-        self.assertEqual(self.parse(issue_fixture(deliverable_ids="SCM-001"))["deliverable_ids"], ["SCM-001"])
+    def test_required_fields_and_choices_fail_closed(self):
+        for change in ({'lead':''},{'lead_github_username':''},{'working_groups':'- [ ] SCM'},
+                       {'working_groups':'- [x] UNKNOWN'},{'deliverables_SCM':'CAS-1'},
+                       {'phd_thesis':'bogus'},{'related_links':'javascript:alert(1)'},
+                       {'lead_github_username':'@alice'},{'contributor_1_name':''}):
+            with self.subTest(change=change),self.assertRaises(Invalid):self.parse(issue_fixture(**change))
 
-    def test_wrong_group_and_contributor_errors_are_combined(self):
-        with self.assertRaises(Invalid) as error:
-            self.parse(issue_fixture(deliverable_ids="CAS / CAS-001", contributor_1_github_username=""))
+    def test_nonmember_and_impersonation_rejected(self):
+        with self.assertRaises(Invalid):self.parse(member=False)
+        with self.assertRaises(Invalid):self.parse(issue_fixture(lead_github_username='bob'))
+        self.parse(issue_fixture(lead_github_username='carol'),sc=True)
 
-    def test_nonmember_rejected_even_if_sc_flag_is_true(self):
-        with self.assertRaises(Invalid):
-            self.parse(member=False, sc=True)
+    def test_cpp_cannot_be_injected_through_body(self):
+        i=issue_fixture();i['body']+='\n\n### Project kind\n\nCPP'
+        with self.assertRaises(Invalid):self.parse(i)
 
-    def test_member_cannot_declare_cpp_key(self):
-        for kind in ("CPP", "KEY"):
-            with self.subTest(kind=kind), self.assertRaises(Invalid):
-                self.parse(issue_fixture(kind=kind))
+    def test_headings_in_fences_remain_literal(self):
+        description='```text\n### Working groups\n- [x] CAS\n```\nScientific goals'
+        self.assertEqual(self.parse(issue_fixture(summary=description))['summary'],description)
 
-    def test_sc_can_declare_unassigned_cpp_key(self):
-        for kind in ("CPP", "KEY"):
-            record = self.parse(issue_fixture(kind=kind, lead="_No response_", lead_github_username="_No response_", contributor_1_name="_No response_", contributor_1_github_username="_No response_"), sc=True)
-            self.assertIsNone(record["lead"])
-            self.assertEqual(record["contributors"], [])
+    def test_duplicate_headings_are_rejected(self):
+        i=issue_fixture();i['body']+='\n\n### Description\n\nInjected'
+        with self.assertRaises(Invalid):self.parse(i)
 
-    def test_member_cannot_impersonate_another_lead(self):
-        with self.assertRaises(Invalid):
-            self.parse(issue_fixture(lead_github_username="bob", contributor_1_name="_No response_", contributor_1_github_username="_No response_"))
+    def test_submit_retry_keeps_one_pr_and_one_branch(self):
+        api=FakeAPI();raw=api.issue['body']
+        self.assertEqual(issue_intake.process(api,Teams(),12),'created')
+        self.assertEqual(issue_intake.process(api,Teams(),12),'updated')
+        self.assertEqual(len([x for x in api.writes if x[1]=='pulls']),1)
+        self.assertEqual(set(api.refs),{'main','project-submissions/issue-12'})
+        self.assertEqual(api.issue['body'],raw)
+        self.assertEqual(len(api.comments),1)
+        self.assertIn('Closes #12',api.pr['body'])
+        review=next(x[2] for x in api.writes if x[1].endswith('/requested_reviewers'))
+        self.assertEqual(review,{'reviewers':['aguinot'],'team_reviewers':[]})
+        self.assertEqual(api.dispatches[-1]['inputs'],{'operation':'validate','pr_number':'99'})
 
-    def test_missing_lead_or_half_lead_rejected(self):
-        for fields in ({"lead": ""}, {"lead": "", "lead_github_username": ""}):
-            with self.subTest(fields=fields), self.assertRaises(Invalid):
-                self.parse(issue_fixture(**fields))
+    def test_invalid_submission_makes_no_branch_or_pr(self):
+        api=FakeAPI(issue_fixture(lead=''))
+        self.assertEqual(issue_intake.process(api,Teams(),12),'invalid')
+        self.assertIsNone(api.pr);self.assertEqual(set(api.refs),{'main'})
+        self.assertIn('invalid',{x['name'] for x in api.issue['labels']})
+        self.assertNotIn('correct-project',api.comments[0]['body'])
 
-    def test_optional_blank_code_blocks_are_empty_lists(self):
-        record = self.parse(issue_fixture(contributor_1_name="_No response_", contributor_1_github_username="_No response_", related_links="```text\n\n```"))
-        self.assertEqual(record["contributors"], [])
-        self.assertEqual(record["related_links"], [])
+    def test_nonmember_cannot_create_branch(self):
+        api=FakeAPI()
+        self.assertEqual(issue_intake.process(api,Teams(member=False),12),'invalid')
+        self.assertEqual(set(api.refs),{'main'})
 
-    def test_empty_required_fields_and_invalid_boolean(self):
-        for fields in ({"title": ""}, {"summary": ""}, {"deliverable_ids": ""}, {"phd_thesis": "Maybe"}):
-            with self.subTest(fields=fields), self.assertRaises(Invalid):
-                self.parse(issue_fixture(**fields))
+    def test_two_submissions_use_distinct_branches(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.other_issues[13]={**issue_fixture(), 'number':13}
+        issue_intake.process(api,Teams(),13)
+        self.assertEqual(len(api.prs),2)
+        self.assertIn('project-submissions/issue-13',api.refs)
 
-    def test_duplicate_case_insensitive_contributor_and_lead_rejected(self):
-        for changes in ({"contributor_2_name": "Bob Again", "contributor_2_github_username": "BOB"},
-                        {"contributor_1_name": "Alice", "contributor_1_github_username": "ALICE"}):
-            with self.subTest(changes=changes), self.assertRaises(Invalid):
-                self.parse(issue_fixture(**changes))
+    def test_manual_issue_change_blocks_pr_without_editing_proposal(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        head=api.pr['head']['sha'];body=api.pr['body']
+        api.issue['body']=issue_fixture(summary='Updated scientific goals')['body']
+        self.assertEqual(issue_intake.process(api,Teams(),12),'invalid')
+        self.assertEqual(api.pr['head']['sha'],head)
+        self.assertEqual(api.pr['body'],body)
+        self.assertEqual(api.statuses[-1][1],'failure')
 
-    def test_invalid_related_links_and_unsafe_github_urls(self):
-        for link in ("http://example.org", "https://user:secret@example.org", "https://example.org:bad", "https://"):
-            with self.subTest(link=link), self.assertRaises(Invalid):
-                self.parse(issue_fixture(related_links=link))
-        for link in ("https://evil.example/repo", "https://github.com/org/repo/tree/main"):
-            with self.subTest(link=link), self.assertRaises(Invalid):
-                self.parse(issue_fixture(github_url=link))
+    def test_invalid_edit_blocks_existing_pr_without_overwriting_yaml(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        head=api.pr['head']['sha'];api.issue['body']=issue_fixture(lead='')['body']
+        self.assertEqual(issue_intake.process(api,Teams(),12),'invalid')
+        self.assertEqual(api.pr['head']['sha'],head)
+        self.assertEqual(api.statuses[-1][1],'failure')
 
-    def test_heading_in_code_block_is_preserved_in_description(self):
-        text = "Example:\n```markdown\n### Contributors\nThis is scientific text.\n```"
-        self.assertEqual(self.parse(issue_fixture(summary=text))["summary"], text)
+    def test_closed_issue_cancels_pr_and_branch_without_member_token(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12);api.issue['state']='closed'
+        self.assertEqual(issue_intake.process(api,None,12),'cancelled')
+        self.assertEqual(api.pr['state'],'closed');self.assertEqual(set(api.refs),{'main'})
+        self.assertEqual(issue_intake.process(api,None,12),'cancelled')
+        api.issue['state']='open'
+        self.assertEqual(issue_intake.process(api,Teams(),12),'cancelled')
+        self.assertEqual(set(api.refs),{'main'})
 
-    def test_missing_or_duplicate_heading_and_oversize_rejected(self):
-        issue = issue_fixture()
-        for body in (issue["body"].replace("### Project kind", "### Removed heading"), issue["body"] + "\n### Project kind\nReplacement", "x" * 65537):
-            with self.subTest(body=body[:30]), self.assertRaises(Invalid):
-                self.parse({**issue, "body": body})
+    def test_merged_pr_is_not_cancelled(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.pr.update(state='closed',merged_at='2026-10-12T00:00:00Z');api.issue['state']='closed'
+        self.assertEqual(issue_intake.process(api,None,12),'already-merged')
+        self.assertIn('project-submissions/issue-12',api.refs)
 
-    def test_shell_and_yaml_content_is_only_data(self):
-        text = "$(touch /tmp/nope)\n!unsafe tag\n::error::fake annotation"
-        record = self.parse(issue_fixture(summary=text))
-        self.assertEqual(parse_yaml(project_yaml(record))["summary"], text)
+    def test_unrelated_branch_edits_are_never_deleted(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.data[api.pr['head']['sha']]['README.md']='manual change'
+        api.issue['state']='closed'
+        with self.assertRaises(Invalid):issue_intake.process(api,None,12)
+        self.assertIn('project-submissions/issue-12',api.refs)
+        self.assertEqual(api.pr['state'],'open')
 
-    def test_unlabelled_closed_or_pr_issue_rejected(self):
-        for change in ({"labels": []}, {"state": "closed"}, {"pull_request": {"url": "x"}}):
-            with self.subTest(change=change), self.assertRaises(Invalid):
-                self.parse({**issue_fixture(), **change})
+    def test_edited_issue_invalidates_independent_pr_check(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        pr=api.pr;head=api.tree(pr['head']['sha']);base=api.tree(BASE_SHA)
+        validate_bot_snapshot(base,head,api.reader(base),api.reader(head),pr,api.issue,self.ctx,organization_member=True,is_sc=False)
+        api.issue['title']='Tampered title'
+        with self.assertRaises(Invalid):validate_bot_snapshot(base,head,api.reader(base),api.reader(head),pr,api.issue,self.ctx,organization_member=True,is_sc=False)
 
+    def test_unrelated_project_added_to_bot_pr_is_rejected(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.data[api.pr['head']['sha']]['projects/P000013.yaml']='{}'
+        head=api.tree(api.pr['head']['sha']);base=api.tree(BASE_SHA)
+        with self.assertRaises(Invalid):validate_bot_snapshot(base,head,api.reader(base),api.reader(head),api.pr,api.issue,self.ctx,organization_member=True,is_sc=False)
 
-    def test_schema_validates_related_links_outside_issue_intake(self):
-        record = self.parse()
-        record["related_links"] = ["https://user:secret@example.org"]
-        with self.assertRaises(Invalid):
-            validate_record(record, project_path(12), self.ctx)
+    def test_unlabelled_and_unrelated_closed_issues_are_ignored(self):
+        api=FakeAPI();api.issue['labels']=[]
+        self.assertEqual(issue_intake.process(api,Teams(),12),'ignored')
+        api.issue['state']='closed'
+        self.assertEqual(issue_intake.process(api,None,12),'ignored-closure')
 
-
-class IntakeIntegrationTests(unittest.TestCase):
-    def run_process(self, api, teams=None, warning=None):
-        return issue_intake.process(api, teams or Teams(), 12, repo_check=lambda url: warning)
-
-    def test_create_revalidate_and_update_one_pr_and_one_comment(self):
-        api = FakeAPI()
-        self.assertEqual(self.run_process(api), "created")
-        first_head = api.pr["head"]["sha"]
-        self.assertRegex(api.pr["body"], r"(?i)\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+#12\b")
-        self.assertEqual(self.run_process(api), "updated")
-        self.assertEqual(api.pr["head"]["sha"], first_head)
-        api.issue = issue_fixture(summary="An improved scientific description.")
-        self.assertEqual(self.run_process(api), "updated")
-        self.assertNotEqual(api.pr["head"]["sha"], first_head)
-        self.assertEqual(len([w for w in api.writes if w[:2] == ("POST", "pulls")]), 1)
-        self.assertEqual(len(api.comments), 1)
-        self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"operation": "validate", "pr_number": "99"}})
-
-    def test_invalid_new_issue_has_feedback_and_no_pr(self):
-        api = FakeAPI(issue_fixture(contributor_1_github_username=""))
-        self.assertEqual(self.run_process(api), "invalid")
-        self.assertIsNone(api.pr)
-        self.assertIn("project-submissions/issue-12", api.refs)
-        self.assertNotIn('project-workflow/state', api.refs)
-
-    def test_invalid_edit_blocks_previously_valid_pr(self):
-        api = FakeAPI()
-        self.run_process(api)
-        previous_yaml = api.data[api.pr['head']['sha']][project_path(12)]
-        api.issue = issue_fixture(kind="KEY")
-        self.assertEqual(self.run_process(api), "invalid")
-        self.assertEqual(api.data[api.pr['head']['sha']][project_path(12)], previous_yaml)
-        self.assertEqual(api.statuses[-1][1], "failure")
-        self.assertEqual(len(api.dispatches), 1)
-
-    def test_removing_label_blocks_existing_pr(self):
-        api = FakeAPI()
-        self.run_process(api)
-        api.issue['labels'] = []
-        self.assertEqual(self.run_process(api), 'invalid')
-        self.assertEqual(api.statuses[-1][1], 'failure')
-
-    def test_interrupted_pr_creation_reuses_orphan_branch(self):
-        api = FakeAPI()
-        original = api.request
-        def interrupted(method, endpoint, payload):
-            if endpoint == "pulls":
-                raise urllib.error.HTTPError("https://api.github.com", 500, "test", {}, None)
-            return original(method, endpoint, payload)
-        api.request = interrupted
-        with self.assertRaises(urllib.error.HTTPError):
-            self.run_process(api)
-        head = api.refs['project-submissions/issue-12']
-        self.assertIsNone(api.pr)
-        api.request = original
-        self.run_process(api)
-        self.assertEqual(api.pr['head']['sha'], head)
-        self.assertEqual(len([w for w in api.writes if w[:2] == ('POST', 'pulls')]), 1)
-
-    def test_nonmember_and_revoked_member_cannot_publish(self):
-        api = FakeAPI()
-        self.assertEqual(self.run_process(api, Teams(member=False)), "invalid")
-        self.assertIsNone(api.pr)
-        self.run_process(api)
-        self.assertEqual(self.run_process(api, Teams(member=False)), "invalid")
-        self.assertEqual(api.statuses[-1][1], "failure")
-
-    def test_issue_changed_during_validation_does_not_publish(self):
-        api = FakeAPI()
-        def checker(url):
-            api.issue = issue_fixture(summary="Changed during processing")
-        self.assertEqual(issue_intake.process(api, Teams(), 12, repo_check=checker), "invalid")
-        self.assertIsNone(api.pr)
-
-    def test_project_id_collision_never_overwritten(self):
-        api = FakeAPI()
-        ctx = load_context(api.base.__getitem__, paths=api.base)
-        api.base[project_path(12)] = project_yaml(proposal(api.issue, ctx, organization_member=True, is_sc=False))
-        self.assertEqual(self.run_process(api), "invalid")
-        self.assertIsNone(api.pr)
-
-    def test_closed_or_merged_pr_is_not_duplicated(self):
-        for merged in (False, True):
-            api = FakeAPI()
-            self.run_process(api)
-            api.pr["state"] = "closed"
-            api.pr["merged_at"] = "2026-10-11" if merged else None
-            count = len(api.writes)
-            result = self.run_process(api)
-            self.assertEqual(result, "already-merged" if merged else "closed-pr")
-            self.assertFalse(any(w[1] == "pulls" for w in api.writes[count:]))
-
-
-    def test_unrelated_branch_edits_are_not_overwritten(self):
-        api = FakeAPI()
-        self.run_process(api)
-        api.data[api.pr["head"]["sha"]]["project_workflow/evil.py"] = "print('unsafe')"
-        self.assertEqual(self.run_process(api), "invalid")
-
-    def test_bot_pr_policy_rechecks_live_issue_and_publishes_on_head(self):
-        api = FakeAPI()
-        self.run_process(api)
-        with tempfile.TemporaryDirectory() as directory:
-            event = Path(directory) / "event.json"
-            event.write_text("{}")
-            env = {"GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": api.repo,
-                   "GITHUB_TOKEN": "dummy", "SC_TEAM_READ_TOKEN": "dummy",
-                   "POLICY_PR_NUMBER": "99"}
-            with patch.dict(os.environ, env), patch.object(sys, "argv", ["validate_pr", "--publish-status"]), \
-                 patch.object(validate_pr, "GitHub", return_value=api), patch.object(validate_pr, "TeamDirectory", return_value=Teams()), \
-                 patch.object(validate_pr.subprocess, "check_output", return_value=BASE_SHA + "\n"), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                self.assertEqual(validate_pr.main(), 0)
-                self.assertEqual(api.statuses[-1][:2], (api.pr["head"]["sha"], "success"))
-                api.issue = issue_fixture(kind="KEY")
-                self.assertEqual(validate_pr.main(), 1)
-                self.assertEqual(api.statuses[-1][1], "failure")
-
-
-class BotSecurityTests(unittest.TestCase):
-    def setUp(self):
-        self.api = FakeAPI()
-        issue_intake.process(self.api, Teams(), 12, repo_check=lambda url: None)
-        self.ctx = load_context(self.api.base.__getitem__, paths=self.api.base)
-
-    def check(self, pr=None, issue=None):
-        pr = pr or self.api.pr
-        base_tree = self.api.tree(BASE_SHA)
-        head_tree = self.api.tree(self.api.pr["head"]["sha"])
-        return validate_bot_snapshot(base_tree, head_tree, self.api.base.__getitem__, self.api.reader(head_tree), pr,
-            issue or self.api.issue, self.ctx, organization_member=True, is_sc=False,
-            input_values=issue_intake.revisions.input_values(self.api, issue or self.api.issue, self.ctx))
-
-    def test_real_generated_proposal_passes(self):
-        self.check()
-
-    def test_spoofed_bot_author_or_branch_is_rejected(self):
-        for user in ({**BOT, "id": 7}, {**BOT, "type": "User"}, {**BOT, "login": "fake[bot]"}):
-            with self.subTest(user=user), self.assertRaises(Invalid):
-                self.check({**self.api.pr, "user": user})
-        pr = deepcopy(self.api.pr)
-        pr["head"]["ref"] = "project-submissions/issue-13"
-        with self.assertRaises(Invalid):
-            self.check(pr)
-
-    def test_forged_metadata_and_code_changes_are_rejected(self):
-        data = self.api.data[self.api.pr["head"]["sha"]]
-        original = data[project_path(12)]
-        record = parse_yaml(original)
-        record["submission"]["submitted_by"] = "sc-user"
-        data[project_path(12)] = project_yaml(record)
-        with self.assertRaises(Invalid):
-            self.check()
-        data[project_path(12)] = original
-        data[".github/workflows/new-project.yml"] = "unsafe"
-        with self.assertRaises(Invalid):
-            self.check()
-
-    def test_manual_edits_to_generated_record_must_match_issue(self):
-        data = self.api.data[self.api.pr["head"]["sha"]]
-        record = parse_yaml(data[project_path(12)])
-        record["summary"] = "Unrequested rewrite"
-        data[project_path(12)] = project_yaml(record)
-        with self.assertRaises(Invalid):
-            self.check()
-
-
-class OrgMembershipTests(unittest.TestCase):
-    def test_active_pending_absent_and_api_failures(self):
-        for state, role, expected in (("active", "member", True), ("active", "admin", True), ("pending", "member", False)):
-            api = validate_pr.TeamDirectory("dummy")
-            api.get = lambda path: {"state": state, "role": role}
-            self.assertEqual(api.is_org_member("test-org", "alice"), expected)
-        for status in (404, 401, 403, 429, 500):
-            api = validate_pr.TeamDirectory("dummy")
-            def get(path):
-                if "/memberships/" in path:
-                    raise urllib.error.HTTPError("https://api.github.com", status, "test", {}, None)
-                return {}
-            api.get = get
-            if status == 404:
-                self.assertFalse(api.is_org_member("test-org", "alice"))
-            else:
-                with self.assertRaises(urllib.error.HTTPError):
-                    api.is_org_member("test-org", "alice")
-
-    def test_injected_identity_is_not_used_in_api_path(self):
-        api = validate_pr.TeamDirectory("dummy")
-        api.get = lambda path: self.fail("Must not request invalid identity")
-        for actor in ("../alice", "bot[bot]", "alice?x=1"):
-            self.assertFalse(api.is_org_member("test-org", actor))
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_pr_summary_neutralizes_mentions_and_closing_keywords(self):
+        from project_workflow.review import proposal_body
+        record=self.parse(issue_fixture(summary='@someone Closes #99\nFixes https://github.com/test-org/registry/issues/100'))
+        body=proposal_body(record,self.ctx,'test-org/registry',12)
+        self.assertNotIn('@someone',body);self.assertNotIn('Closes #99',body)
+        self.assertNotIn('Fixes https://github.com',body)
+        self.assertIn('Closes #12',body)

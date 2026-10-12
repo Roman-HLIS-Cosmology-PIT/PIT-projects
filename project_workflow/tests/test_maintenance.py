@@ -13,7 +13,7 @@ from project_workflow.project_registry import CONFIG_PATH, Invalid, load_context
 from project_workflow.sync_generated import GENERATION_BRANCH, synchronize_main, validate_generated_snapshot
 from test_generation import GenerationAPI
 from test_issue_submission import BASE_SHA, BOT, Teams
-from test_submission_updates import current_issue
+from test_issue_submission import issue_fixture as current_issue
 
 
 class MaintenanceAPI(GenerationAPI):

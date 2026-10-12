@@ -16,11 +16,9 @@ from jsonschema.exceptions import SchemaError
 
 
 class Invalid(ValueError):
-    def __init__(self, message, *, fields=(), selections=None, corrections=None):
+    def __init__(self, message, *, fields=()):
         super().__init__(message)
         self.fields = set(fields)
-        self.selections = selections or {}
-        self.corrections = corrections or {}
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -74,7 +72,6 @@ def utc_timestamp(value):
 USERNAME = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\Z")
 PROJECT_PATH = re.compile(r"projects/(P[0-9]{3,})\.yaml\Z")
 GROUP_PATH = re.compile(r"working_groups/([A-Z][A-Z0-9_-]*)\.yaml\Z")
-PROTECTED = {"project_id", "schema_version", "kind", "lead_github_username", "submission"}
 
 
 def usernames(values, label):
@@ -113,7 +110,7 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
     if not isinstance(config["schema"], dict) or not isinstance(config["form"], dict):
         raise Invalid("schema and form must be mappings")
     policy, schema = config["policy"], config["schema"]
-    if not isinstance(policy, dict) or set(policy) != {"kinds", "lead_editable_fields", "contributor_editable_fields"} or not isinstance(policy["kinds"], dict) or not policy["kinds"]:
+    if not isinstance(policy, dict) or set(policy) != {"kinds"} or not isinstance(policy["kinds"], dict) or not policy["kinds"]:
         raise Invalid("Invalid policy configuration keys or kinds")
     def bind_choices(value):
         if isinstance(value, dict):
@@ -144,7 +141,7 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
 
     check_refs(schema)
     required = {"schema_version", "project_id", "name", "lead", "lead_github_username", "contributors", "summary",
-                "kind", "status", "working_group", "deliverable_ids"}
+                "kind", "status", "working_groups"}
     if schema.get("additionalProperties") is not False or not required <= set(schema.get("required", [])):
         raise Invalid("The schema must reject unknown fields and require all core fields")
     props = schema["properties"]
@@ -152,26 +149,14 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
         raise Invalid("Initial project status must satisfy its schema constraints")
     if not isinstance(policy["kinds"], dict) or set(policy["kinds"]) != set(props["kind"]["enum"]):
         raise Invalid("Schema kinds and policy kinds must agree")
-    rule_keys = {"member_can_create", "member_can_claim", "allow_unassigned"}
+    rule_keys = {"member_can_create", "allow_unassigned"}
     for rules in policy["kinds"].values():
         if not isinstance(rules, dict) or not rule_keys <= set(rules) or set(rules) - rule_keys - {"description"}:
-            raise Invalid("Every kind requires creation, claim and unassigned rules; description is optional")
+            raise Invalid("Every kind requires creation and unassigned rules; description is optional")
         if any(type(rules[key]) is not bool for key in rule_keys):
             raise Invalid("Kind policy values must be booleans")
         if "description" in rules and (not isinstance(rules["description"], str) or not rules["description"].strip()):
             raise Invalid("Project-kind description must be nonempty text")
-        if rules["member_can_claim"] and not rules["allow_unassigned"]:
-            raise Invalid("A claimable kind must allow an unassigned lead")
-    for label in ("lead_editable_fields", "contributor_editable_fields"):
-        fields = policy[label]
-        if not isinstance(fields, list) or any(not isinstance(x, str) for x in fields):
-            raise Invalid(f"{label} must be a list of field names")
-        if len(set(fields)) != len(fields) or not set(fields) <= set(props) or set(fields) & PROTECTED:
-            raise Invalid(f"Invalid or protected field in {label}")
-    if "contributors" in policy["contributor_editable_fields"]:
-        raise Invalid("Contributors cannot manage project membership")
-    if not set(policy["contributor_editable_fields"]) <= set(policy["lead_editable_fields"]):
-        raise Invalid("Contributor fields must also be lead-editable")
     # Review routing and SC authorization are independent. GitHub owns the roster.
     owner_pattern = r"@[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)?"
     team = config["steering_committee"]
@@ -192,8 +177,6 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
     group_paths = sorted(p for p in paths if p.startswith("working_groups/"))
     if not group_paths:
         raise Invalid("working_groups/ must contain at least one working-group YAML file")
-    if "enum" in props["working_group"]:
-        raise Invalid("Remove the working_group schema enum; working_groups/ defines the allowed groups")
     definitions = {}
     for path in group_paths:
         match = GROUP_PATH.fullmatch(path)
@@ -251,11 +234,14 @@ def validate_record(record: dict, path: str, ctx: Context):
     roster = usernames([person["github_username"] for person in record["contributors"]], "Contributors")
     if lead is not None and lead.lower() in roster:
         raise Invalid("The lead is implicitly a project member; do not repeat them as a contributor")
-    if record["working_group"] not in ctx.working_groups:
-        raise Invalid("Working group must exist in working_groups/")
-    unknown = set(record["deliverable_ids"]) - ctx.deliverables[record["working_group"]]
-    if unknown:
-        raise Invalid("Deliverable IDs must exist in the selected working group's catalogue")
+    seen = set()
+    for group in record["working_groups"]:
+        code = group["code"]
+        if code not in ctx.working_groups or code in seen:
+            raise Invalid("Working groups must exist in working_groups/ and appear only once")
+        seen.add(code)
+        if set(group["deliverable_ids"]) - ctx.deliverables[code]:
+            raise Invalid("Deliverables must exist in their working group's catalogue")
     from project_workflow.submission import https_url
     for link in record.get("related_links", []):
         https_url(link)
@@ -291,24 +277,7 @@ def authorize_change(old, new, actor: str, ctx: Context, *, organization_member:
         if new["lead_github_username"] is None or new["lead_github_username"].lower() != actor:
             raise Invalid("A member must submit a new project with themselves as its lead")
         return
-    fields = {key for key in set(old) | set(new) if old.get(key) != new.get(key)}
-    if old["lead_github_username"] is None:
-        rules = ctx.policy["kinds"][old["kind"]]
-        if not rules["member_can_claim"] or new["lead_github_username"] is None or new["lead_github_username"].lower() != actor:
-            raise Invalid("Only a claimable unassigned project can be claimed by a member")
-        # Claiming does just one thing. Subsequent content changes are separate.
-        expected_contributors = [x for x in old["contributors"] if x["github_username"].lower() != actor]
-        if fields - {"lead", "lead_github_username", "contributors"} or new["contributors"] != expected_contributors:
-            raise Invalid("A claim may only assign the lead and remove that person from contributors")
-        return
-    if old["lead_github_username"].lower() == actor:
-        allowed = set(ctx.policy["lead_editable_fields"])
-    elif actor in {x["github_username"].lower() for x in old["contributors"]}:
-        allowed = set(ctx.policy["contributor_editable_fields"])
-    else:
-        raise Invalid("Requester is not the lead, a contributor, or an SC member")
-    if fields - allowed:
-        raise Invalid("This change modifies fields the requester cannot edit")
+    raise Invalid("Existing project changes require an SC-authored PR")
 
 
 def local_reader(root: Path):
@@ -361,24 +330,10 @@ def main():
     catalog.add_argument("--output", type=Path)
     groups = sub.add_parser("working-groups", help="Export one combined YAML catalogue from the working-group files")
     groups.add_argument("--output", type=Path)
-    simulate = sub.add_parser("simulate", help="Local policy simulation; never authenticates anyone")
-    simulate.add_argument("--actor", required=True)
-    simulate.add_argument("--member", action="store_true", help="Assume verified org membership for simulation")
-    simulate.add_argument("--sc", action="store_true", help="Assume active SC team membership for simulation only")
-    simulate.add_argument("--old", type=Path)
-    simulate.add_argument("--new", type=Path, required=True)
     args = parser.parse_args()
     try:
         ctx = load_local_context(args.root)
-        if args.command == "simulate":
-            new = parse_yaml(args.new.read_text())
-            old = parse_yaml(args.old.read_text()) if args.old else None
-            validate_record(new, f"projects/{new['project_id']}.yaml", ctx)
-            if old is not None:
-                validate_record(old, f"projects/{old['project_id']}.yaml", ctx)
-            authorize_change(old, new, args.actor, ctx, organization_member=args.member, is_sc=args.sc)
-            print("Allowed by policy (simulation only; no GitHub changes).")
-        elif args.command == "working-groups":
+        if args.command == "working-groups":
             output = yaml.safe_dump({"working_groups": list(ctx.working_groups.values())}, sort_keys=False, allow_unicode=True)
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -6,76 +6,89 @@ labels:
 body:
 - type: markdown
   attributes:
-    value: Use **Add a title** above for your project title. Submit collaboration-appropriate information only;
-      all answers are visible to repository readers. Ordinary members may propose EP projects with themselves as
-      lead. Only SC members may declare CPP or KEY. After submission, a validation result will appear as a comment.
-      To correct errors, use the replacement-form link provided in the validation comment. To edit a valid proposal
-      before its PR is merged, comment /edit on the latest submission Issue. No email address is requested.
-- type: dropdown
-  id: kind
-  attributes:
-    label: Project kind
-    default: 0
-    options:
-    - EP - Enhancing Project
-    - CPP - Critical Path Project
-    - KEY - Key Project
-  validations:
-    required: true
+    value: Use **Add a title** above for your project title. This form proposes an EP (Enhancing Project). Ordinary
+      members must be the project lead. Submit only information suitable for all repository readers; no email address
+      is requested.
 - type: input
   id: lead
   attributes:
     label: Project lead name
-    description: Required for EP.
   validations:
-    required: false
+    required: true
 - type: input
   id: lead_github_username
   attributes:
     label: Project lead GitHub username
     description: One GitHub username without @.
   validations:
-    required: false
-- type: dropdown
-  id: working_group
+    required: true
+- type: checkboxes
+  id: working_groups
   attributes:
-    label: Working group
-    default: 0
+    label: Working groups
+    description: Select at least one working group. Deliverables are optional; choices for unselected groups are
+      ignored.
     options:
-    - CAS — Catalogue And Statistics
-    - CPIP — Cosmological Parameter Inference Pipeline
-    - SCM — Shape and Color Measurement
+    - label: CAS — Catalogue And Statistics
+    - label: CPIP — Cosmological Parameter Inference Pipeline
+    - label: SCM — Shape and Color Measurement
   validations:
     required: true
-- type: dropdown
-  id: deliverable_ids
+- type: markdown
   attributes:
-    label: Deliverables
+    value: '### CAS — Catalogue And Statistics'
+- type: dropdown
+  id: deliverables_CAS
+  attributes:
+    label: CAS deliverables
+    description: Optional. Select any deliverables for CAS; ignored unless this working group is checked above.
     multiple: true
-    default: 0
-    description: Select deliverables from your chosen working group.
     options:
-    - CAS / CAS-1 — Photometric redshift inference
-    - CAS / CAS-2 — Galaxy sample preparation and calibration
-    - CAS / CAS-3 — Galaxy cluster identification and cross-correlation
-    - CAS / CAS-4 — Catalog simulations
-    - CAS / CAS-5 — 2-point statistics measurement
-    - CAS / CAS-6 — Observational systematics parametrizatin and priors
-    - CPIP / CPI-1 — 3x2pt and cluster cosmology
-    - CPIP / CPI-2 — Baryon suppression and nonlinear power spectrum modeling
-    - CPIP / CPI-3 — Intrinsic alignements modeling
-    - CPIP / CPI-4 — Galaxy bias modeling
-    - CPIP / CPI-5 — Cluster systematics
-    - CPIP / CPI-6 — Data challenges and covariance
-    - CPIP / CPI-7 — Mass mapping and high-order statistics
-    - CPIP / CPI-8 — Forecasting HLIS performance
-    - SCM / SCM-1 — Calibration
-    - SCM / SCM-2 — Image pre-processing
-    - SCM / SCM-3 — Galaxy identification and shape measurement
-    - SCM / SCM-4 — Photometry and color measurement
-    - SCM / SCM-5 — Image simulations
+    - CAS-1 — Photometric redshift inference
+    - CAS-2 — Galaxy sample preparation and calibration
+    - CAS-3 — Galaxy cluster identification and cross-correlation
+    - CAS-4 — Catalog simulations
+    - CAS-5 — 2-point statistics measurement
+    - CAS-6 — Observational systematics parametrizatin and priors
   validations:
-    required: true
+    required: false
+- type: markdown
+  attributes:
+    value: '### CPIP — Cosmological Parameter Inference Pipeline'
+- type: dropdown
+  id: deliverables_CPIP
+  attributes:
+    label: CPIP deliverables
+    description: Optional. Select any deliverables for CPIP; ignored unless this working group is checked above.
+    multiple: true
+    options:
+    - CPI-1 — 3x2pt and cluster cosmology
+    - CPI-2 — Baryon suppression and nonlinear power spectrum modeling
+    - CPI-3 — Intrinsic alignements modeling
+    - CPI-4 — Galaxy bias modeling
+    - CPI-5 — Cluster systematics
+    - CPI-6 — Data challenges and covariance
+    - CPI-7 — Mass mapping and high-order statistics
+    - CPI-8 — Forecasting HLIS performance
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### SCM — Shape and Color Measurement'
+- type: dropdown
+  id: deliverables_SCM
+  attributes:
+    label: SCM deliverables
+    description: Optional. Select any deliverables for SCM; ignored unless this working group is checked above.
+    multiple: true
+    options:
+    - SCM-1 — Calibration
+    - SCM-2 — Image pre-processing
+    - SCM-3 — Galaxy identification and shape measurement
+    - SCM-4 — Photometry and color measurement
+    - SCM-5 — Image simulations
+  validations:
+    required: false
 - type: dropdown
   id: phd_thesis
   attributes:

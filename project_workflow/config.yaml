@@ -1,4 +1,4 @@
-# Routine project-workflow settings live here. Working-group catalogues remain in working_groups/.
+# Workflow settings and form wording. Working-group catalogues live in working_groups/.
 steering_committee: Roman-HLIS-Cosmology-PIT/steering-committee
 reviewers:
 - aguinot
@@ -7,37 +7,15 @@ policy:
     EP:
       description: Enhancing Project
       member_can_create: true
-      member_can_claim: false
       allow_unassigned: false
     CPP:
       description: Critical Path Project
       member_can_create: false
-      member_can_claim: true
       allow_unassigned: true
     KEY:
       description: Key Project
       member_can_create: false
-      member_can_claim: false
       allow_unassigned: true
-  lead_editable_fields:
-  - lead
-  - name
-  - summary
-  - status
-  - working_group
-  - deliverable_ids
-  - github_url
-  - contributors
-  - phd_thesis
-  - slack_channel
-  - related_links
-  contributor_editable_fields:
-  - summary
-  - status
-  - deliverable_ids
-  - github_url
-  - slack_channel
-  - related_links
 schema:
   $schema: https://json-schema.org/draft/2020-12/schema
   title: Collaboration project
@@ -53,8 +31,7 @@ schema:
   - summary
   - kind
   - status
-  - working_group
-  - deliverable_ids
+  - working_groups
   $defs:
     person:
       type: object
@@ -122,18 +99,6 @@ schema:
       - completed
       description: IR = internal review of the project's work, distinct from proposal review.
       default: active
-    working_group:
-      type: string
-      minLength: 1
-      pattern: ^[A-Z][A-Z0-9_-]*$
-      description: Must match a code defined by working_groups/<CODE>.yaml; the catalogue defines allowed groups.
-    deliverable_ids:
-      type: array
-      uniqueItems: true
-      items:
-        type: string
-        minLength: 1
-      description: Must belong to the selected working group's deliverable catalogue.
     github_url:
       anyOf:
       - type: string
@@ -171,14 +136,10 @@ schema:
         submitted_at:
           type: string
           pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$
-          description: Original submission Issue creation time from GitHub, in UTC; unchanged by edits or retries.
+          description: Submission Issue creation time from GitHub, in UTC.
         issue_number:
           type: integer
           minimum: 1
-        original_issue_number:
-          type: integer
-          minimum: 1
-          description: Original submission Issue; fixes the project ID and branch across replacements.
         submitted_by:
           $ref: '#/$defs/username'
         issue_body_sha256:
@@ -188,7 +149,27 @@ schema:
           type: string
           pattern: ^[0-9a-f]{64}$
       description: Generated provenance; users do not supply this field.
-
+    working_groups:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: object
+        additionalProperties: false
+        required:
+        - code
+        - deliverable_ids
+        properties:
+          code:
+            type: string
+            pattern: ^[A-Z][A-Z0-9_-]*$
+          deliverable_ids:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+              minLength: 1
+      description: Selected groups from working_groups/, each with zero or more catalogue deliverables.
 form:
   name: New Project
   description: Propose a project for review.
@@ -197,50 +178,35 @@ form:
   body:
   - type: markdown
     attributes:
-      value: Use **Add a title** above for your project title. Submit collaboration-appropriate information only;
-        all answers are visible to repository readers. Ordinary members may propose EP projects with themselves
-        as lead. Only SC members may declare CPP or KEY. After submission, a validation result will appear as a comment. To correct errors, use the replacement-form link provided in the validation comment. To edit a valid
-        proposal before its PR is merged, comment /edit on the latest submission Issue. No email address is requested.
-  - type: dropdown
-    id: kind
-    attributes:
-      label: Project kind
-      default: 0
-    validations:
-      required: true
-    options_from: project_kinds
+      value: Use **Add a title** above for your project title. This form proposes an EP (Enhancing Project). Ordinary
+        members must be the project lead. Submit only information suitable for all repository readers; no email
+        address is requested.
   - type: input
     id: lead
     attributes:
       label: Project lead name
-      description: Required for EP.
     validations:
-      required: false
+      required: true
   - type: input
     id: lead_github_username
     attributes:
       label: Project lead GitHub username
       description: One GitHub username without @.
     validations:
-      required: false
-  - type: dropdown
-    id: working_group
+      required: true
+  - type: checkboxes
+    id: working_groups
     attributes:
-      label: Working group
-      default: 0
+      label: Working groups
+      description: Select at least one working group. Deliverables are optional; choices for unselected groups are
+        ignored.
     validations:
       required: true
     options_from: working_groups
-  - type: dropdown
-    id: deliverable_ids
+  - type: working_group_sections
     attributes:
-      label: Deliverables
-      multiple: true
-      default: 0
-      description: Select deliverables from your chosen working group.
-    validations:
-      required: true
-    options_from: deliverables
+      label: '{code} deliverables'
+      description: Optional. Select any deliverables for {code}; ignored unless this working group is checked above.
   - type: dropdown
     id: phd_thesis
     attributes:
@@ -372,11 +338,14 @@ form:
       placeholder: janesmith
     validations:
       required: false
-
   - type: markdown
     attributes:
-      value: |
-        ---
+      value: '---
 
-        **After submitting your project, stay on the Issue page** until a new message appears with instructions for the next steps.
+
+        **After submitting your project, stay on the Issue page** until a new message appears with instructions
+        for the next steps.
+
         You may need to refresh the page; this can take a few minutes.
+
+        '
