@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from project_workflow import issue_intake, revisions, validate_pr
-from project_workflow.issue_form import KEEP_VALUE, form
+from project_workflow.issue_form import KEEP_VALUE, form, form_identifier
 from project_workflow.project_registry import Invalid, load_context, parse_yaml
 from project_workflow.submission import project_path
 from test_issue_submission import BASE_SHA, BOT, FakeAPI, Teams, issue_fixture
@@ -46,7 +46,8 @@ class CorrectionTests(unittest.TestCase):
             reference = revisions.REFERENCE.search(params.get('correction_notes', ''))
             if reference:
                 changes['correction_notes'] += '\n\n' + reference[0].strip()
-        values.update(changes)
+        identifiers = {item['id']: form_identifier(item) for item in self.ctx.form_source['body'] if item.get('id')}
+        values.update({identifiers.get(key, key): value for key, value in changes.items()})
         issue = {**issue_fixture(), 'number': n, 'title': title, 'created_at': '2026-10-12T12:00:00Z',
                  'labels': [{'name': 'project-correction'}],
                  'body': '\n\n'.join('### ' + item['attributes']['label'] + '\n\n' + values[item['id']]
@@ -83,7 +84,7 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
         self.assertEqual(set(params) & {'original_issue', 'previous_issue', 'correction_token', 'previous_kind', 'previous_deliverable_ids'}, set())
-        self.assertNotIn('🔴', params['summary'])
+        self.assertNotIn('🔴', params['project_description'])
         self.assertIn('Deliverables:', params['correction_notes'])
         self.assertIn('CAS-001 does not belong to SCM', params['correction_notes'])
         self.assertIn('Contributor 1 GitHub username:', params['correction_notes'])
@@ -202,7 +203,7 @@ class CorrectionTests(unittest.TestCase):
         self.process()
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(params['summary'], KEEP_VALUE)
+        self.assertEqual(params['project_description'], KEEP_VALUE)
         original = self.record()['summary']
         self.replacement(params, slack_channel='_No response_', related_links='_No response_')
         self.assertEqual(self.process(13), 'updated')
@@ -245,7 +246,7 @@ class CorrectionTests(unittest.TestCase):
         self.api.issue['body'] = self.api.issue['body'].replace('### Description', '### Wrong heading')
         self.assertEqual(self.process(), 'invalid')
         params = self.params()
-        self.assertEqual(params['summary'], '')
+        self.assertEqual(params['project_description'], '')
         self.replacement(params, summary='Recovered description', kind='EP')
         self.assertEqual(self.process(13), 'created')
         self.assertEqual(self.record()['summary'], 'Recovered description')
@@ -319,7 +320,8 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(self.process(), 'created')
         self.command()
         params = self.params(marker='<!-- pit-project-edit:v1 -->')
-        self.assertEqual(params['summary'], 'Test')
+        self.assertNotIn('summary', params)
+        self.assertEqual(params['project_description'], 'Test')
         self.assertEqual(params['related_links'], '')
         self.assertIsNotNone(revisions.REFERENCE.search(params['correction_notes']))
         self.replacement(params, summary='Changed description', related_links='https://example.org/new')

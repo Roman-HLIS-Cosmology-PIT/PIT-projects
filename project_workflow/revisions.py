@@ -10,7 +10,7 @@ import secrets
 import time
 from urllib.parse import urlencode
 
-from project_workflow.issue_form import KEEP_VALUE, current_labels
+from project_workflow.issue_form import KEEP_VALUE, current_labels, form_identifier
 from project_workflow.project_registry import Invalid
 from project_workflow.submission import answers, correction_issue, number, optional, resolved_values, issue_version, list_text, is_submission_bot
 from project_workflow import workflow_state
@@ -257,22 +257,23 @@ def correction_link(api, root, state, issue, values, ctx, *, error=None):
         request = {**request, 'root': root['number'], 'issued_at': time.time_ns()}
     params = {'template': 'correct-project.yml', 'title': values.get('name', issue.get('title', '')),
               'correction_notes': correction_notes(ctx, error)}
-    for item in ctx.form_source['body']:
-        key = item.get('id')
-        if key and item.get('type') in {'input', 'textarea'}:
-            params[key] = list_text(values.get(key, '')) if key == 'related_links' else optional(values.get(key, ''))
+    identifiers = {item['id']: form_identifier(item) for item in ctx.form_source['body']
+                   if item.get('id') and item.get('type') in {'input', 'textarea'}}
+    for key, identifier in identifiers.items():
+        params[identifier] = list_text(values.get(key, '')) if key == 'related_links' else optional(values.get(key, ''))
     suffix = '\n\n' + reference_comment(root['number'], issue['number'], request['token'])
     params['correction_notes'] = params['correction_notes'] + suffix
     prefix = f'https://github.com/{api.repo}/issues/new?'
     url = prefix + urlencode(params)
     omitted = []
-    candidates = sorted((k for k in current_labels(ctx) if k in params), key=lambda k: len(params[k]), reverse=True)
+    candidates = sorted(identifiers, key=lambda k: len(params[identifiers[k]]), reverse=True)
     for key in candidates:
         if len(url) <= MAX_URL_LENGTH:
             break
-        if len(params[key]) <= len(KEEP_VALUE):
+        identifier = identifiers[key]
+        if len(params[identifier]) <= len(KEEP_VALUE):
             continue
-        params[key] = KEEP_VALUE
+        params[identifier] = KEEP_VALUE
         omitted.append(current_labels(ctx)[key])
         url = prefix + urlencode(params)
     if len(url) > MAX_URL_LENGTH:

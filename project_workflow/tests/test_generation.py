@@ -103,12 +103,19 @@ class GenerationTests(unittest.TestCase):
 
     def test_custom_label_is_used_by_submission_parser(self):
         def rename(data):
-            next(f for f in data["body"] if f.get("id") == "summary")["attributes"]["label"] = "Scientific goals"
+            field = next(f for f in data["body"] if f.get("id") == "summary")
+            field["attributes"]["label"] = "Scientific goals"
+            field['form_id'] = 'science_text'
         self.api.source("form", rename)
         ctx = load_context(self.api.head.__getitem__, paths=self.api.head)
         issue = current_issue()
         issue["body"] = issue["body"].replace("### Description\n", "### Scientific goals\n")
         self.assertEqual(proposal(issue, ctx, organization_member=True, is_sc=False)["summary"], "Science description.")
+        self.run_sync()
+        generated = yaml.safe_load(self.api.data[self.api.pr['head']['sha']]['.github/ISSUE_TEMPLATE/new-project.yml'])
+        control = next(f for f in generated['body'] if f.get('id') == 'science_text')
+        self.assertNotIn('form_id', control)
+        self.assertEqual(control['attributes']['label'], 'Scientific goals')
     def test_descriptive_kind_options_keep_stable_codes_and_permissions(self):
         self.api.source("policy", lambda d: d["kinds"]["KEY"].pop("description", None))
         self.api.source("policy", lambda d: d["kinds"]["EP"].update(description="Enhancing Project"))

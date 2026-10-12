@@ -53,6 +53,15 @@ def deliverable_options(ctx):
 CONTRIBUTOR_FIELD = re.compile(r"contributor_([1-9][0-9]*)_(name|github_username)\Z")
 
 
+def form_identifier(item):
+    """The browser control may use a distinct ID from the stored field key."""
+    identifier = item.get('form_id', item.get('id'))
+    if identifier is not None and (not isinstance(identifier, str)
+            or not re.fullmatch(r'[A-Za-z0-9_-]+', identifier)):
+        raise Invalid('Form control IDs must use letters, digits, underscores or hyphens')
+    return identifier
+
+
 def current_labels(ctx):
     source = ctx.form_source
     if not isinstance(source, dict) or not isinstance(source.get("body"), list):
@@ -104,6 +113,9 @@ def form(ctx, *, correction=False):
             if bindings.get(item.get("id")) != source or "options" in item.get("attributes", {}):
                 raise Invalid("options_from must reference the field's catalogue without duplicate options")
             item["attributes"]["options"] = choices[source]
+        if item.get('type') != 'markdown':
+            item['id'] = form_identifier(item)
+        item.pop('form_id', None)
     if correction:
         spec["name"] = "Correct or Edit Project"
         spec["description"] = "Replace a submission using the link provided by the automation."

@@ -45,6 +45,7 @@ body:
   id: working_group
   attributes:
     label: Working group
+    default: 0
     options:
     - CAS — Catalogue And Statistics
     - CPIP — Cosmological Parameter Inference Pipeline
@@ -57,6 +58,7 @@ body:
   attributes:
     label: Deliverables
     multiple: true
+    default: 0
     description: Check or select again for this submission.
     options:
     - CAS / CAS-1 — Photometric redshift inference
@@ -99,7 +101,7 @@ body:
   validations:
     required: false
 - type: textarea
-  id: summary
+  id: project_description
   attributes:
     label: Description
     description: Describe the goals, approach and expected results. Markdown is supported.

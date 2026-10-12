@@ -227,6 +227,7 @@ form:
     id: working_group
     attributes:
       label: Working group
+      default: 0
     validations:
       required: true
     options_from: working_groups
@@ -235,6 +236,7 @@ form:
     attributes:
       label: Deliverables
       multiple: true
+      default: 0
       description: Select deliverables from your chosen working group.
     validations:
       required: true
@@ -258,6 +260,7 @@ form:
       required: false
   - type: textarea
     id: summary
+    form_id: project_description
     attributes:
       label: Description
       description: Describe the goals, approach and expected results. Markdown is supported.
