@@ -17,7 +17,7 @@ collaboration-appropriate information. No email address is collected.
 | `project_workflow/config.yaml` | SC team, reviewers, project schema, policy and Issue Form wording/layout | Yes: the one routine workflow configuration file |
 | `working_groups/<CODE>.yaml` | Working-group description and deliverables | Yes: one catalogue per group, reusable outside this workflow |
 | `projects/P<digits>.yaml` | Accepted project records | Through proposal PRs or an SC administrative change |
-| `.github/ISSUE_TEMPLATE/new-project.yml` | Native GitHub form | Generated automatically |
+| `.github/ISSUE_TEMPLATE/new-project.yml` and `correct-project.yml` | New-project and replacement forms sharing the same fields | Generated automatically |
 | `.github/CODEOWNERS` | Native GitHub review routing | Generated automatically |
 | `.github/workflows/projects.yml` | Issue intake and PR validation | Only for changes to automation behavior |
 | `.github/workflows/maintenance.yml` | Generation, registry health and downloadable exports | Only for changes to automation behavior |
@@ -100,9 +100,9 @@ the project schema. Different groups may reuse a deliverable ID.
 
 | Workflow / job | Trigger | Result |
 | --- | --- | --- |
-| Project workflows / submission | New-project Issue events or manual `submit` retry on main | Acknowledge, authenticate, validate, comment and create/update one proposal PR |
+| Project workflows / submission | New-project/correction Issue events, `/edit` comments or manual `submit` retry on main | Acknowledge, authenticate, validate and create/update the same proposal PR across replacement Issues |
 | Project workflows / validation | Open PR events targeting main or manual `validate` on main | Independently publish **Project policy** on the current proposed head |
-| Project maintenance / generation | Main push, open PR events, or manual run on main | Synchronize the form and CODEOWNERS when needed |
+| Project maintenance / generation | Main push, open PR events, or manual run on main | Synchronize both forms and CODEOWNERS when needed |
 | Project maintenance / registry | Main push or manual main run without a PR number | Validate accepted records, check SC team access and upload `registry-catalogues` exports |
 
 Routine Actions runs do not run unit tests. Data validation, identity checks and
@@ -123,11 +123,70 @@ comment explains errors or links the proposal PR. Native GitHub forms can check
 required fields before submission; membership, schema and catalogue checks run
 afterward. GitHub does not provide cascading group/deliverable dropdowns here.
 
-To correct an error, edit the Issue title or choose **… → Edit** on its original
-description. Keep the field headings, update the answers and save. Validation
-reruns and reuses the same PR, including its formatted project summary. An
-invalid edit blocks the proposal's policy status. A closed rejected PR is not
-replaced: ask SC to reopen it if the proposal should continue.
+If a submission is invalid, the bot adds **invalid** and posts a link to the
+**Correct or Edit Project** form. Text answers are prefilled. Only problematic
+values have **🔴**, without explanations inside the form. Dropdowns have a
+separate previous-selection box immediately above them, for example:
+
+```text
+Previous selection:
+SCM-1
+CAS-1 🔴
+```
+
+Choose replacement dropdown values, or leave **Keep previous selection** to
+retain the earlier answer. For multiple deliverables, deselect that option
+before choosing replacement deliverables; do not combine the two. The
+previous-selection boxes are guidance: editing them does not change selections.
+An empty optional text field clears that answer. The automation removes its
+standalone/prefixed/suffixed 🔴 guidance markers from replacement text values.
+
+To edit a valid proposal, the original submitter comments **`/edit`** on the
+latest submission Issue while its PR is open. The bot provides the same form,
+with **no emoji**. Requesting/opening the form leaves the current proposal and
+policy status unchanged. The link is bound to the current Issue answers; if
+those answers change, request a fresh link.
+
+Submitting a valid correction reference activates a **new Issue**, marks the
+previous one **superseded**, posts a link to the replacement and closes the
+previous Issue. A previously invalid Issue retains its invalid label; a valid
+superseded Issue is not labelled invalid. The project ID, original submission
+date, branch and PR remain unchanged. A valid replacement updates the YAML and
+formatted PR summary. An invalid replacement blocks **Project policy** and
+leaves the last valid YAML in the branch. Its feedback provides another
+correction link. Only the latest Issue remains open; merging the PR closes it.
+Require **Project policy** in branch protection to enforce this merge block.
+
+The correction form is visible in GitHub's Issue chooser, but requires a link
+issued by the bot. A correction created without valid references, by another
+author, from an obsolete link, or after the PR has merged is rejected and
+closed with guidance. The three reference fields identify the submission and
+must be left unchanged when creating the replacement. After activation, routing
+comes from authenticated bot records, so edited reference boxes cannot redirect
+that Issue to another project. Live organization membership and the original
+author's numeric GitHub identity are checked; a supplied username or PR number
+never grants authority.
+
+Both forms are generated from the same `form.body` and catalogues. Change
+shared labels, wording, field order or contributor slots only in the config.
+Labels must be unique, including the generated previous-selection/reference
+labels. When renaming a label, update existing open Issue headings before
+revalidating. Do not edit superseded Issue answers: their frozen content is
+needed to resolve retained selections. Bot comments retain the authenticated
+revision chain and latest-submission link; do not edit/delete those comments.
+
+Native GitHub links have finite length. When a long text answer would exceed
+the link's size budget, that box contains **Keep previous value** instead of
+all its text. Leaving this value retains the complete previous answer. Replace
+it to change the answer; the bot comment explains this fallback. The form link
+is a static snapshot, not live validation, and 🔴 does not disappear as choices
+are changed. Dynamic headings/descriptions are not supported here.
+
+PR creation and policy checks share a queued concurrency group to prevent an
+older validator from overriding the status of a newer revision. GitHub queues
+up to 100 waiting jobs in that group; an overflow requires a manual retry.
+A closed, unmerged PR is not replaced: ask SC to reopen it to continue.
+
 
 Ordinary organization members may create EP projects with themselves as lead.
 Only SC members may declare CPP/KEY, including unassigned projects with both
@@ -223,11 +282,14 @@ If you want to preview generated native files locally:
 python -m project_workflow.generated_files
 ```
 
-That command changes the local form and CODEOWNERS only; it does not contact
+That command changes the two local forms and CODEOWNERS only; it does not contact
 GitHub. Normally the maintenance workflow handles this for you.
 
 ## GitHub configuration and security
 
+* Create the **project-correction** Issue label once before using correction links.
+  Keep the existing **new-project** label. The bot creates **invalid** and
+  **superseded** labels when first needed.
 * Organization members keep Read access. SC needs Write access to create
   administrative PRs (your existing SC Admin access is sufficient).
 * Retain the repository secret **SC_TEAM_READ_TOKEN** with organization Members
@@ -255,8 +317,7 @@ They never run proposed scripts, workflows, dependencies or tests. SC authority
 comes from the API's actual PR/Issue author and live membership in the accepted
 SC team, never from a supplied lead name or a proposed team setting. A bot is
 not an SC member. Each supported bot PR has independently verified identity,
-provenance and allowed file/content scope. Generation writes only the two native
-GitHub files. Main/SC-branch updates are non-forced; only verified reserved bot
+provenance and allowed file/content scope. Generation writes only the two native forms and CODEOWNERS. Main/SC-branch updates are non-forced; only verified reserved bot
 branches can be rebased.
 
 GitHub suppresses most new workflow triggers for writes using `GITHUB_TOKEN`.
@@ -264,6 +325,26 @@ Automation therefore explicitly dispatches PR validation, and the current
 maintenance run builds exports after its own generation commit. When a stale
 main/branch check or transient API error stops a run, retry against current
 main. Do not change tokens or loosen policy to work around a stale run.
+
+## Installing this update
+
+Apply the supplied patch from the repository root, then publish it through your
+usual direct-main commit or an SC-authored PR. The patch is based on main commit
+`1198f3389505fb17636673bff32ef5e8229570ea` and preserves the accepted test project.
+
+```bash
+git apply --check /path/to/PIT-projects-correction-workflow.patch
+git apply /path/to/PIT-projects-correction-workflow.patch
+python -m project_workflow.project_registry validate
+python -m project_workflow.issue_form --check
+```
+
+Create the `project-correction` label, keep the existing Actions settings and
+membership secret, and require **Project policy** before testing merge blocks.
+No new secret, backend or authentication system is needed. Review requests still
+go only to **aguinot**. If an unmerged proposal predates this update, manually
+retry **Project workflows → submit** for its original Issue once to establish
+its authenticated revision history. Accepted projects do not need migration.
 
 ## Testing after installation
 
@@ -284,17 +365,27 @@ main. Do not change tokens or loosen policy to work around a stale run.
    the same PR. Review and merge it.
 5. Submit a valid EP Issue from an organization member with Read access,
    entering their own username as lead. Check acknowledgment, formatted PR,
-   human review request, linked Issue and one YAML addition. Edit its description
-   and verify that the same PR updates.
+   human review request, linked Issue and one YAML addition. Comment `/edit`,
+   verify that the prefilled form has no 🔴, then submit a replacement and
+   verify that the same PR updates and the previous Issue is closed.
 6. Test a working-group/deliverable mismatch or a half-filled contributor pair.
-   Check actionable feedback and no mergeable invalid PR. Correct the original
-   Issue and verify recovery without a duplicate PR. Also confirm an ordinary
+   Check an **invalid** label and the correction link. Confirm that only the
+   incorrect selection has 🔴. Submit a replacement with corrected answers and
+   verify recovery without a duplicate PR. Also confirm an ordinary
    member's CPP/KEY submission is rejected.
 7. Confirm the initial project YAML and PR summary contain the original Issue
-   creation time under `submission.submitted_at`. Correct the Issue and check
-   that this date stays unchanged. Merge the proposal; confirm Issue closure
+   creation time under `submission.submitted_at`. Submit a replacement and check
+   that this date and project ID stay unchanged. Merge the proposal; confirm Issue closure
    and that no second project/metadata PR is created.
-8. Revert temporary wording/catalogue test changes through your usual commit/PR
+8. Before merging, request another `/edit` and choose an invalid working-group /
+   deliverable combination. Confirm the same PR is blocked by **Project policy**,
+   its old YAML remains, and the latest Issue offers a correction link. Correct
+   it and confirm recovery. Opening an old correction link must not produce a
+   duplicate PR or change the active submission.
+9. Open the correction form directly without a bot-issued reference. Confirm
+   that its Issue is closed and directs you to the New Project form. Test another
+   member trying your correction link: it must not affect your PR.
+10. Revert temporary wording/catalogue test changes through your usual commit/PR
    route. Keep accepted test project history, or use a separate test repository
    if disposable project records are needed.
 

@@ -1,0 +1,255 @@
+# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.
+name: Correct or Edit Project
+description: Replace a submission using the link provided by the automation.
+labels:
+- project-correction
+body:
+- type: markdown
+  attributes:
+    value: Use the correction link from your submission. Keep the three reference fields unchanged. For dropdowns,
+      keep the previous selection or choose replacement values. An empty optional text field clears that answer.
+      A field containing **Keep previous value** retains its earlier answer. Previous-selection boxes are for reference
+      only.
+- type: input
+  id: original_issue
+  attributes:
+    label: Original submission Issue
+  validations:
+    required: true
+- type: input
+  id: previous_issue
+  attributes:
+    label: Previous submission Issue
+  validations:
+    required: true
+- type: input
+  id: correction_token
+  attributes:
+    label: Correction reference
+  validations:
+    required: true
+- type: textarea
+  id: previous_kind
+  attributes:
+    label: Previous selection — Project kind
+  validations:
+    required: false
+- type: dropdown
+  id: kind
+  attributes:
+    label: Project kind
+    default: 0
+    options:
+    - Keep previous selection
+    - EP - Enhancing Project
+    - CPP - Critical Path Project
+    - KEY - Key Project
+  validations:
+    required: true
+- type: input
+  id: lead
+  attributes:
+    label: Project lead name
+    description: Required for EP.
+  validations:
+    required: false
+- type: input
+  id: lead_github_username
+  attributes:
+    label: Project lead GitHub username
+    description: One GitHub username without @.
+  validations:
+    required: false
+- type: textarea
+  id: previous_working_group
+  attributes:
+    label: Previous selection — Working group
+  validations:
+    required: false
+- type: dropdown
+  id: working_group
+  attributes:
+    label: Working group
+    options:
+    - Keep previous selection
+    - CAS — Catalogue And Statistics
+    - CPIP — Cosmological Parameter Inference Pipeline
+    - SCM — Shape and Color Measurement
+    default: 0
+  validations:
+    required: true
+- type: textarea
+  id: previous_deliverable_ids
+  attributes:
+    label: Previous selection — Deliverables
+  validations:
+    required: false
+- type: dropdown
+  id: deliverable_ids
+  attributes:
+    label: Deliverables
+    multiple: true
+    description: Select deliverables from your chosen working group.
+    options:
+    - Keep previous selection
+    - CAS / CAS-1 — Photometric redshift inference
+    - CAS / CAS-2 — Galaxy sample preparation and calibration
+    - CAS / CAS-3 — Galaxy cluster identification and cross-correlation
+    - CAS / CAS-4 — Catalog simulations
+    - CAS / CAS-5 — 2-point statistics measurement
+    - CAS / CAS-6 — Observational systematics parametrizatin and priors
+    - CPIP / CPI-1 — 3x2pt and cluster cosmology
+    - CPIP / CPI-2 — Baryon suppression and nonlinear power spectrum modeling
+    - CPIP / CPI-3 — Intrinsic alignements modeling
+    - CPIP / CPI-4 — Galaxy bias modeling
+    - CPIP / CPI-5 — Cluster systematics
+    - CPIP / CPI-6 — Data challenges and covariance
+    - CPIP / CPI-7 — Mass mapping and high-order statistics
+    - CPIP / CPI-8 — Forecasting HLIS performance
+    - SCM / SCM-1 — Calibration
+    - SCM / SCM-2 — Image pre-processing
+    - SCM / SCM-3 — Galaxy identification and shape measurement
+    - SCM / SCM-4 — Photometry and color measurement
+    - SCM / SCM-5 — Image simulations
+    default: 0
+  validations:
+    required: true
+- type: textarea
+  id: previous_phd_thesis
+  attributes:
+    label: Previous selection — Part of your PhD thesis?
+  validations:
+    required: false
+- type: dropdown
+  id: phd_thesis
+  attributes:
+    label: Part of your PhD thesis?
+    options:
+    - Keep previous selection
+    - 'False'
+    - 'True'
+    default: 0
+  validations:
+    required: true
+- type: input
+  id: slack_channel
+  attributes:
+    label: Slack channel
+    description: 'Optional existing channel name, such as #scm-shapes. Can be added later.'
+  validations:
+    required: false
+- type: textarea
+  id: summary
+  attributes:
+    label: Description
+    description: Describe the goals, approach and expected results. Markdown is supported.
+  validations:
+    required: true
+- type: input
+  id: github_url
+  attributes:
+    label: Main GitHub repository
+    description: Optional https://github.com/OWNER/REPOSITORY URL. Accessible repositories are checked; private/inaccessible
+      ones are flagged for review.
+  validations:
+    required: false
+- type: textarea
+  id: related_links
+  attributes:
+    label: Related links
+    description: Optional. One HTTPS URL per line. Do not include credentials or secret sharing tokens.
+    render: text
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '## Contributors
+
+
+      List up to five contributors, excluding the project lead. Leave unused contributor sections blank. Additional
+      contributors can be added to the project later.'
+- type: markdown
+  attributes:
+    value: '### Contributor 1 — Optional'
+- type: input
+  id: contributor_1_name
+  attributes:
+    label: Contributor 1 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_1_github_username
+  attributes:
+    label: Contributor 1 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 2 — Optional'
+- type: input
+  id: contributor_2_name
+  attributes:
+    label: Contributor 2 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_2_github_username
+  attributes:
+    label: Contributor 2 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 3 — Optional'
+- type: input
+  id: contributor_3_name
+  attributes:
+    label: Contributor 3 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_3_github_username
+  attributes:
+    label: Contributor 3 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 4 — Optional'
+- type: input
+  id: contributor_4_name
+  attributes:
+    label: Contributor 4 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_4_github_username
+  attributes:
+    label: Contributor 4 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 5 — Optional'
+- type: input
+  id: contributor_5_name
+  attributes:
+    label: Contributor 5 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_5_github_username
+  attributes:
+    label: Contributor 5 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false

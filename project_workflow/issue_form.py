@@ -12,6 +12,11 @@ import yaml
 from project_workflow.project_registry import Invalid, load_local_context, parse_yaml
 
 LABEL = "new-project"
+CORRECTION_LABEL = "project-correction"
+KEEP_SELECTION = "Keep previous selection"
+KEEP_VALUE = "Keep previous value"
+CORRECTION_FIELDS = {"original_issue": "Original submission Issue", "previous_issue": "Previous submission Issue",
+                     "correction_token": "Correction reference"}
 BRANCH_PREFIX = "project-submissions/issue-"
 BOT_LOGIN = "github-actions[bot]"
 BOT_ID = 41898282
@@ -77,14 +82,18 @@ def current_labels(ctx):
     return labels
 
 
-def label_keys(ctx):
+def label_keys(ctx, *, correction=False):
     labels = current_labels(ctx)
+    if correction:
+        labels.update(CORRECTION_FIELDS)
+        labels.update({"previous_" + item["id"]: "Previous selection — " + item["attributes"]["label"]
+                       for item in ctx.form_source["body"] if item.get("type") == "dropdown"})
     if len(set(labels.values())) != len(labels):
         raise Invalid("Form answer labels must be unique")
     return {label: key for key, label in labels.items()}
 
 
-def form(ctx):
+def form(ctx, *, correction=False):
     label_keys(ctx)
     spec = deepcopy(ctx.form_source)
     choices = {"project_kinds": kind_options(ctx),
@@ -99,13 +108,36 @@ def form(ctx):
             if bindings.get(item.get("id")) != source or "options" in item.get("attributes", {}):
                 raise Invalid("options_from must reference the field's catalogue without duplicate options")
             item["attributes"]["options"] = choices[source]
-    validate_form(yaml.safe_dump(spec), ctx)
+    if correction:
+        spec["name"] = "Correct or Edit Project"
+        spec["description"] = "Replace a submission using the link provided by the automation."
+        spec["labels"] = [CORRECTION_LABEL]
+        controls = [{"type": "input", "id": key, "attributes": {"label": label},
+                     "validations": {"required": True}} for key, label in CORRECTION_FIELDS.items()]
+        body = [{"type": "markdown", "attributes": {"value":
+            "Use the correction link from your submission. Keep the three reference fields unchanged. "
+            "For dropdowns, keep the previous selection or choose replacement values. "
+            "An empty optional text field clears that answer. A field containing **Keep previous value** "
+            "retains its earlier answer. Previous-selection boxes are for reference only."}}, *controls]
+        for item in spec["body"]:
+            if item.get("type") == "markdown" and item is spec["body"][0]:
+                continue
+            if item.get("type") == "dropdown":
+                key = item["id"]
+                body.append({"type": "textarea", "id": "previous_" + key,
+                             "attributes": {"label": "Previous selection — " + item["attributes"]["label"]},
+                             "validations": {"required": False}})
+                item["attributes"]["options"].insert(0, KEEP_SELECTION)
+                item["attributes"]["default"] = 0
+            body.append(item)
+        spec["body"] = body
+    validate_form(yaml.safe_dump(spec), ctx, correction=correction)
     return spec
 
 
-def generated_text(ctx):
+def generated_text(ctx, *, correction=False):
     return "# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.\n" + yaml.safe_dump(
-        form(ctx), sort_keys=False, allow_unicode=True, width=110)
+        form(ctx, correction=correction), sort_keys=False, allow_unicode=True, width=110)
 
 
 def option_value(value):
@@ -121,7 +153,7 @@ def deliverable_value(value, working_group):
     return working_group, value
 
 
-def validate_form(text, ctx):
+def validate_form(text, ctx, *, correction=False):
     """Check only the fields and values needed to parse a submission.
 
     This is a functional check, not a frozen generated-file comparison. Source
@@ -134,10 +166,11 @@ def validate_form(text, ctx):
     labels = spec.get("labels", [])
     if isinstance(labels, str):
         labels = [label.strip() for label in labels.split(",")]
-    if not isinstance(labels, list) or LABEL not in labels:
-        raise Invalid("Submission form must apply the new-project label")
+    required_label = CORRECTION_LABEL if correction else LABEL
+    if not isinstance(labels, list) or required_label not in labels:
+        raise Invalid("Submission form must apply the " + required_label + " label")
     fields, identifiers = {}, set()
-    reverse = label_keys(ctx)
+    reverse = label_keys(ctx, correction=correction)
     for item in spec["body"]:
         if not isinstance(item, dict):
             raise Invalid("Submission form fields must be mappings")
@@ -154,7 +187,7 @@ def validate_form(text, ctx):
         if key is None or key in fields:
             raise Invalid("Submission form must keep each parser field label exactly once")
         fields[key] = item
-    expected = current_labels(ctx)
+    expected = {key: label for label, key in reverse.items()}
     if set(fields) != set(expected):
         raise Invalid("Submission form fields must match the parser; update its field definitions when adding/removing fields")
     for key, item in fields.items():
@@ -170,6 +203,8 @@ def validate_form(text, ctx):
         if default is not None and (type(default) is not int or not 0 <= default < len(options)):
             raise Invalid(f"Dropdown {key} has an invalid default index")
         for value in options:
+            if correction and value == KEEP_SELECTION:
+                continue
             if key == "working_group" and option_value(value) not in ctx.working_groups:
                 raise Invalid(f"Unknown working-group option: {value}")
             if key == "deliverable_ids":
@@ -193,17 +228,19 @@ def main():
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     try:
-        path = args.root / ".github/ISSUE_TEMPLATE/new-project.yml"
         ctx = load_local_context(args.root)
+        for filename, correction in (("new-project.yml", False), ("correct-project.yml", True)):
+            path = args.root / ".github/ISSUE_TEMPLATE" / filename
+            if args.check:
+                if not path.is_file():
+                    raise Invalid("Submission form is missing")
+                validate_form(path.read_text(encoding="utf-8"), ctx, correction=correction)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(generated_text(ctx, correction=correction), encoding="utf-8")
+                print("Generated " + str(path.relative_to(args.root)))
         if args.check:
-            if not path.is_file():
-                raise Invalid("Submission form is missing")
-            validate_form(path.read_text(encoding="utf-8"), ctx)
-            print("Issue form has the fields and values needed by submission.")
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(generated_text(ctx), encoding="utf-8")
-            print("Generated .github/ISSUE_TEMPLATE/new-project.yml")
+            print("Both Issue forms have the fields and values needed by submission.")
     except (Invalid, OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

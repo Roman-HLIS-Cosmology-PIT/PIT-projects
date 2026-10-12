@@ -159,12 +159,12 @@ class FormUpdateTests(unittest.TestCase):
         api = FakeAPI(current_issue())
         api.base[".github/CODEOWNERS"] = "* @aguinot\n"
         issue_intake.process(api, Teams(), 12, repo_check=lambda _: None)
-        self.assertEqual(len(api.comments), 2)
+        self.assertEqual(len(api.comments), 3)
         self.assertTrue(api.comments[0]["body"].startswith(issue_intake.ACK_MARKER))
         requests = [w for w in api.writes if w[1].endswith("/requested_reviewers")]
         self.assertEqual(requests[0][2], {"reviewers": ["aguinot"], "team_reviewers": []})
         issue_intake.process(api, Teams(), 12, repo_check=lambda _: None)
-        self.assertEqual(len(api.comments), 2)
+        self.assertEqual(len(api.comments), 3)
 
     def test_current_issue_edit_refreshes_same_pr_summary(self):
         api = FakeAPI(current_issue())

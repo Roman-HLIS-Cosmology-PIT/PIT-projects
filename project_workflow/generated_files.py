@@ -8,7 +8,7 @@ import sys
 from project_workflow.issue_form import generated_text
 from project_workflow.project_registry import CONFIG_PATH, Invalid, load_local_context, parse_yaml
 
-OUTPUTS = {".github/ISSUE_TEMPLATE/new-project.yml", ".github/CODEOWNERS"}
+OUTPUTS = {".github/ISSUE_TEMPLATE/new-project.yml", ".github/ISSUE_TEMPLATE/correct-project.yml", ".github/CODEOWNERS"}
 
 
 def relevant(path):
@@ -18,6 +18,7 @@ def relevant(path):
 def render(ctx):
     return {
         ".github/ISSUE_TEMPLATE/new-project.yml": generated_text(ctx),
+        ".github/ISSUE_TEMPLATE/correct-project.yml": generated_text(ctx, correction=True),
         ".github/CODEOWNERS": "# Generated from project_workflow/config.yaml; do not edit this output.\n* " + " ".join(ctx.review_owners) + "\n",
     }
 

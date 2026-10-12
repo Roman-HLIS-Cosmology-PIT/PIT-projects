@@ -9,8 +9,9 @@ body:
     value: Use **Add a title** above for your project title. Submit collaboration-appropriate information only;
       all answers are visible to repository readers. Ordinary members may propose EP projects with themselves as
       lead. Only SC members may declare CPP or KEY. After submission, an acknowledgment and then a validation result
-      will appear as comments. To correct errors, edit the Issue title or description and save. Keep the field headings.
-      No email address is requested.
+      will appear as comments. To correct errors, use the replacement-form link provided in the validation comment.
+      To edit a valid proposal before its PR is merged, comment /edit on the latest submission Issue. No email address
+      is requested.
 - type: dropdown
   id: kind
   attributes:

@@ -237,17 +237,20 @@ def main():
         head_read = api.reader(head_tree)
         issue = None
         generation_pr = False
+        root = revision_state = previous_values = None
         if is_submission_bot(pr["user"]):
             from project_workflow.sync_generated import GENERATION_BRANCH, validate_generated_snapshot
             if pr["head"]["ref"] == GENERATION_BRANCH:
                 generation_pr = True
                 validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
             else:
-                issue = api.get(f"issues/{branch_issue(pr['head']['ref'])}")
+                from project_workflow.revisions import active_submission
+                root, revision_state, issue, previous_values = active_submission(api, branch_issue(pr['head']['ref']), ctx)
                 actor = issue["user"]["login"]
                 validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
                     organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
-                    is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+                    is_sc=team_api.is_active_member(*ctx.sc_team, actor),
+                    original_issue=root, previous_values=previous_values)
             count = len(records(head_tree, head_read, ctx))
         else:
             count = validate_snapshot(base_tree, head_tree, base_read, head_read, pr["user"]["login"], sc_lookup=team_api.is_active_member)
@@ -255,13 +258,16 @@ def main():
         if any(latest[side]["sha"] != pr[side]["sha"] for side in ("base", "head")):
             raise Invalid("PR changed during validation; rerun the check")
         if issue is not None:
-            current = api.get(f"issues/{issue['number']}")
+            live_root, live_state, current, live_previous = active_submission(api, root['number'], ctx)
+            if live_state != revision_state or issue_version(live_root) != issue_version(root):
+                raise Invalid("Active revision changed during validation; rerun the submission")
             if issue_version(current) != issue_version(issue):
                 raise Invalid("Issue changed during validation; rerun the submission workflow")
             actor = issue["user"]["login"]
             validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, current, ctx,
                 organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
-                is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+                is_sc=team_api.is_active_member(*ctx.sc_team, actor),
+                original_issue=live_root, previous_values=live_previous)
         elif generation_pr:
             validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):

@@ -72,6 +72,9 @@ class FakeAPI:
         self.refs = {"main": BASE_SHA}
         self.pr = None
         self.comments = []
+        self.other_issues = {}
+        self.other_comments = {}
+        self.next_comment_id = 1
         self.writes = []
         self.statuses = []
         self.dispatches = []
@@ -82,8 +85,16 @@ class FakeAPI:
         return f"{self.serial:040x}"
 
     def get(self, endpoint):
-        if endpoint == "issues/12":
-            return deepcopy(self.issue)
+        if endpoint.startswith("issues/") and endpoint.split("/")[-1].isdigit() and len(endpoint.split("/")) == 2:
+            n = int(endpoint.split("/")[-1])
+            if n != 12 and n not in self.other_issues:
+                raise urllib.error.HTTPError('https://api.github.com', 404, 'test', {}, None)
+            return deepcopy(self.issue if n == 12 else self.other_issues[n])
+        if endpoint.startswith("issues/comments/"):
+            identifier = int(endpoint.rsplit("/", 1)[1])
+            return deepcopy(next(c for c in self.comments + [c for rows in self.other_comments.values() for c in rows] if c['id'] == identifier))
+        if endpoint.startswith("labels/"):
+            return {'name': endpoint.split('/', 1)[1]}
         if endpoint.startswith("git/ref/heads/"):
             ref = endpoint.removeprefix("git/ref/heads/")
             if ref not in self.refs:
@@ -98,8 +109,9 @@ class FakeAPI:
     def pages(self, endpoint):
         if endpoint.startswith("pulls?"):
             return [deepcopy(self.pr)] if self.pr else []
-        if endpoint == "issues/12/comments":
-            return deepcopy(self.comments)
+        if endpoint.startswith("issues/") and endpoint.endswith("/comments"):
+            n = int(endpoint.split('/')[1])
+            return deepcopy(self.comments if n == 12 else self.other_comments.get(n, []))
         raise AssertionError(endpoint)
 
     def tree(self, sha):
@@ -149,13 +161,31 @@ class FakeAPI:
         if endpoint.endswith("/dispatches"):
             self.dispatches.append(payload)
             return None
-        if endpoint == "issues/12/comments":
-            self.comments.append({"id": len(self.comments) + 1, "body": payload["body"], "user": deepcopy(BOT)})
-            return {"id": len(self.comments)}
-        if endpoint.startswith("issues/comments/"):
-            comment = self.comments[int(endpoint.rsplit("/", 1)[1]) - 1]
-            comment["body"] = payload["body"]
+        if endpoint.startswith("issues/") and endpoint.endswith("/comments"):
+            n = int(endpoint.split('/')[1])
+            rows = self.comments if n == 12 else self.other_comments.setdefault(n, [])
+            comment = {'id': self.next_comment_id, 'body': payload['body'], 'user': deepcopy(BOT)}
+            self.next_comment_id += 1
+            rows.append(comment)
             return deepcopy(comment)
+        if endpoint.startswith("issues/comments/"):
+            identifier = int(endpoint.rsplit("/", 1)[1])
+            comment = next(c for c in self.comments + [c for rows in self.other_comments.values() for c in rows] if c['id'] == identifier)
+            comment['body'] = payload['body']
+            return deepcopy(comment)
+        if endpoint.startswith("issues/"):
+            n = int(endpoint.split('/')[1])
+            issue = self.issue if n == 12 else self.other_issues[n]
+            if '/labels/' in endpoint and method == 'DELETE':
+                label = endpoint.rsplit('/', 1)[1]
+                issue['labels'] = [e for e in issue['labels'] if e['name'] != label]
+                return None
+            if endpoint.endswith('/labels'):
+                labels = {e['name'] for e in issue['labels']}
+                issue['labels'].extend({'name': label} for label in payload['labels'] if label not in labels)
+                return None
+            issue.update(payload)
+            return deepcopy(issue)
         raise AssertionError((method, endpoint))
 
 
@@ -280,7 +310,7 @@ class IntakeIntegrationTests(unittest.TestCase):
         self.assertEqual(self.run_process(api), "updated")
         self.assertNotEqual(api.pr["head"]["sha"], first_head)
         self.assertEqual(len([w for w in api.writes if w[:2] == ("POST", "pulls")]), 1)
-        self.assertEqual(len(api.comments), 2)
+        self.assertEqual(len(api.comments), 3)
         self.assertEqual(api.dispatches[-1], {"ref": "main", "inputs": {"operation": "validate", "pr_number": "99"}})
 
     def test_invalid_new_issue_has_feedback_and_no_pr(self):

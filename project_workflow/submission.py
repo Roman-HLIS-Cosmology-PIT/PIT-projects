@@ -7,7 +7,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from project_workflow.issue_form import LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys
+from project_workflow.issue_form import (LABEL, CORRECTION_LABEL, KEEP_SELECTION, KEEP_VALUE, BRANCH_PREFIX,
+    BOT_LOGIN, BOT_ID, CONTRIBUTOR_FIELD, option_value, deliverable_value, current_labels, label_keys)
 from project_workflow.project_registry import Invalid, USERNAME, authorize_change, utc_timestamp, validate_record
 
 
@@ -41,20 +42,24 @@ def is_submission_bot(user):
 
 
 def labelled(issue):
-    return LABEL in {x["name"] for x in issue.get("labels", [])}
+    return bool({LABEL, CORRECTION_LABEL} & {x["name"] for x in issue.get("labels", [])})
+
+
+def correction_issue(issue):
+    return CORRECTION_LABEL in {x["name"] for x in issue.get("labels", [])}
 
 
 def issue_version(issue):
     # updated_at includes comments/labels, which do not change the proposal.
     return (issue.get("title") or "", issue.get("body") or "", issue["user"]["login"], issue["user"].get("id"),
-            issue.get("state"), labelled(issue), issue.get("created_at"))
+            issue.get("state"), labelled(issue), correction_issue(issue), issue.get("created_at"))
 
 
-def answers(body, ctx):
+def answers(body, ctx, *, correction=False, require_fields=True):
     if not isinstance(body, str) or len(body.encode("utf-8")) > 65536:
         raise Invalid("Issue description is missing or too long (maximum 64 KiB)")
     labels = current_labels(ctx)
-    reverse = label_keys(ctx)
+    reverse = label_keys(ctx, correction=correction)
     found, current, fence = {}, None, None
     for line in body.replace("\r\n", "\n").splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -68,7 +73,7 @@ def answers(body, ctx):
         if heading and heading[1] in reverse:
             current = reverse[heading[1]]
             if current in found:
-                raise Invalid(f"Repeated field heading: {labels[current]}. Keep each form heading once.")
+                raise Invalid(f"Repeated field heading: {heading[1]}. Keep each form heading once.", fields={current})
             found[current] = []
         elif current is not None:
             found[current].append(line)
@@ -80,13 +85,45 @@ def answers(body, ctx):
         if match:
             required.update({f"contributor_{match[1]}_name", f"contributor_{match[1]}_github_username"})
     missing = required - set(found)
-    if missing:
-        raise Invalid("Restore these form headings: " + ", ".join(labels.get(k, k) for k in sorted(missing)))
+    if missing and require_fields:
+        raise Invalid("Restore these form headings: " + ", ".join(labels.get(k, k) for k in sorted(missing)), fields=missing)
     return {key: "\n".join(value).strip() for key, value in found.items()}
 
 
 def optional(value):
     return "" if value.strip() in {"", "_No response_", "None"} else value.strip()
+
+
+def unmark(value):
+    """Remove only the standalone/prefixed/suffixed guidance marker."""
+    if value.strip() == "🔴":
+        return ""
+    if value.startswith("🔴\n"):
+        value = value[2:]
+    return "\n".join(line.removesuffix(" 🔴") for line in value.splitlines())
+
+
+def resolved_values(issue, ctx, previous_values=None, *, require_fields=True):
+    correction = correction_issue(issue)
+    values = answers(issue.get("body"), ctx, correction=correction, require_fields=require_fields)
+    if correction:
+        if previous_values is None:
+            raise Invalid("Use a correction link provided on your existing submission")
+        for item in ctx.form_source["body"]:
+            key = item.get("id")
+            if key not in values:
+                continue
+            if item.get("type") == "dropdown":
+                chosen = [x.strip() for x in values[key].split(",") if x.strip()]
+                if KEEP_SELECTION in chosen:
+                    if chosen == [KEEP_SELECTION]:
+                        values[key] = previous_values.get(key, "")
+            else:
+                values[key] = unmark(values[key])
+                if values[key] == KEEP_VALUE:
+                    values[key] = previous_values.get(key, "")
+    values["name"] = unmark(issue.get("title") or "") if correction else issue.get("title") or ""
+    return values
 
 
 def list_text(value):
@@ -108,64 +145,90 @@ def https_url(value):
         raise Invalid("Related links must be complete HTTPS URLs without embedded credentials, one per line")
 
 
-def proposal(issue, ctx, *, organization_member, is_sc):
+def proposal(issue, ctx, *, organization_member, is_sc, original_issue=None, previous_values=None):
     if issue.get("pull_request") or issue.get("state") != "open" or not labelled(issue):
-        raise Invalid("Submission Issue must be open and labelled new-project")
+        raise Invalid("Submission Issue must be open and have its submission label")
     if not organization_member:
         raise Invalid("The Issue author must be an active organization member")
     actor = issue["user"]["login"]
-    values = answers(issue.get("body"), ctx)
-    values["name"] = issue.get("title") or ""
+    values = resolved_values(issue, ctx, previous_values)
+    original_issue = original_issue or issue
+    root_number = original_issue["number"]
     labels = {"name": "Project title", **current_labels(ctx)}
-    errors = []
+    errors, bad_fields, bad_selections = [], set(), {}
+    def fail(message, *keys):
+        errors.append(message)
+        bad_fields.update(keys)
     for key in ("name", "kind", "working_group", "summary", "phd_thesis", "deliverable_ids"):
         values[key] = optional(values[key])
         if not values[key]:
-            errors.append(f"{labels[key]}: an answer is required")
-    contributors = []
+            fail(f"{labels[key]}: an answer is required", key)
+    contributors, contributor_slots = [], []
     slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
     for i in slots:
         name = optional(values[f"contributor_{i}_name"])
         username = optional(values[f"contributor_{i}_github_username"])
         if bool(name) != bool(username):
-            errors.append(f"Contributor {i}: fill both name and GitHub username, or leave both blank")
+            fail(f"Contributor {i}: fill both name and GitHub username, or leave both blank", f"contributor_{i}_name", f"contributor_{i}_github_username")
         elif name:
             contributors.append({"name": name, "github_username": username})
+            contributor_slots.append(i)
     links = [x.strip() for x in list_text(values["related_links"]).splitlines() if x.strip()]
     for link in links:
         try:
             https_url(link)
         except Invalid as exc:
-            errors.append(str(exc))
+            fail(str(exc), "related_links")
+            bad_selections.setdefault("related_links", []).append(link)
     if len(set(links)) != len(links):
-        errors.append("Related links: remove repeated URLs")
+        fail("Related links: remove repeated URLs", "related_links")
+        bad_selections["related_links"] = [x for x in links if links.count(x) > 1]
     lead_username = optional(values["lead_github_username"])
     if lead_username and (len(lead_username) > 39 or not USERNAME.fullmatch(lead_username)):
-        errors.append("Project lead GitHub username: enter one valid GitHub username without @ or a profile URL")
-    if any(len(p["github_username"]) > 39 or not USERNAME.fullmatch(p["github_username"]) for p in contributors):
-        errors.append("Contributors: each GitHub username must be valid, without @ or a profile URL")
+        fail("Project lead GitHub username: enter one valid GitHub username without @ or a profile URL", "lead_github_username")
+    for i in slots:
+        username = optional(values[f"contributor_{i}_github_username"])
+        if username and (len(username) > 39 or not USERNAME.fullmatch(username)):
+            fail("Contributors: each GitHub username must be valid, without @ or a profile URL", f"contributor_{i}_github_username")
+        if username and (username.lower() == lead_username.lower() or sum(p["github_username"].lower() == username.lower() for p in contributors) > 1):
+            fail("Do not repeat the lead or a contributor", f"contributor_{i}_github_username")
     github_url = optional(values["github_url"])
     if github_url and not re.fullmatch(r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+/?", github_url):
-        errors.append("Main GitHub repository: use https://github.com/OWNER/REPOSITORY without a branch/file path, or leave it blank")
+        fail("Main GitHub repository: use https://github.com/OWNER/REPOSITORY without a branch/file path, or leave it blank", "github_url")
     booleans = {"True": True, "False": False}
     if values["phd_thesis"] not in booleans:
-        errors.append("Part of your PhD thesis?: enter " + " or ".join(booleans))
+        fail("Part of your PhD thesis?: enter " + " or ".join(booleans), "phd_thesis")
     wg = option_value(values["working_group"])
     selected = [x.strip() for x in values["deliverable_ids"].split(",") if x.strip()]
     ids = []
     for selection in selected:
         pair = deliverable_value(selection, wg)
         if pair[0] != wg or pair[1] not in ctx.deliverables.get(wg, set()):
-            errors.append("Deliverables: select IDs from the chosen working group. Valid choices: " +
-                          ", ".join(sorted(ctx.deliverables.get(wg, set()))))
+            fail("Deliverables: select IDs from the chosen working group. Valid choices: " +
+                          ", ".join(sorted(ctx.deliverables.get(wg, set()))), "deliverable_ids")
+            bad_selections.setdefault("deliverable_ids", []).append(selection)
         else:
             ids.append(pair[1])
     if wg not in ctx.working_groups:
-        errors.append("Working group: choose " + ", ".join(sorted(ctx.working_groups)))
+        fail("Working group: choose " + ", ".join(sorted(ctx.working_groups)), "working_group")
+    kind = option_value(values["kind"])
+    if kind not in ctx.policy["kinds"]:
+        fail("Unknown project kind", "kind")
+    elif not is_sc and not ctx.policy["kinds"][kind]["member_can_create"]:
+        fail("Only SC members can declare this project kind", "kind")
+    if bool(optional(values["lead"])) != bool(lead_username):
+        fail("Fill both lead name and GitHub username", "lead", "lead_github_username")
+    if kind in ctx.policy["kinds"] and not ctx.policy["kinds"][kind]["allow_unassigned"] and not lead_username:
+        fail("This project kind requires a lead", "lead", "lead_github_username")
+    if not is_sc and lead_username.lower() != actor.lower():
+        fail("A member must submit a new project with themselves as its lead", "lead_github_username")
+    if len(set(ids)) != len(ids):
+        fail("Remove repeated deliverables", "deliverable_ids")
+        bad_selections["deliverable_ids"] = [s for s in selected if ids.count(deliverable_value(s, wg)[1]) > 1]
     if errors:
-        raise Invalid("\n".join(dict.fromkeys(errors)))
+        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields, selections=bad_selections)
     record = {
-        "schema_version": ctx.schema["properties"]["schema_version"]["const"], "project_id": project_id(issue["number"]),
+        "schema_version": ctx.schema["properties"]["schema_version"]["const"], "project_id": project_id(root_number),
         "name": values["name"], "kind": option_value(values["kind"]),
         "status": ctx.schema["properties"]["status"].get("default", "active"),
         "lead": optional(values["lead"]) or None,
@@ -180,10 +243,21 @@ def proposal(issue, ctx, *, organization_member, is_sc):
                        "issue_body_sha256": hashlib.sha256(issue["body"].encode("utf-8")).hexdigest()},
     }
     record["submission"]["issue_title_sha256"] = hashlib.sha256(issue["title"].encode("utf-8")).hexdigest()
-    record["submission"]["submitted_at"] = utc_timestamp(issue.get("created_at"))
+    record["submission"]["submitted_at"] = utc_timestamp(original_issue.get("created_at"))
+    if root_number != issue["number"]:
+        record["submission"]["original_issue_number"] = root_number
     if any(c in record["name"] for c in "\r\n"):
-        raise Invalid("Project title must be a single line")
-    validate_record(record, project_path(issue["number"]), ctx)
+        raise Invalid("Project title must be a single line", fields={"name"})
+    from jsonschema import Draft202012Validator
+    for error in Draft202012Validator(ctx.schema).iter_errors(record):
+        path = list(error.absolute_path)
+        key = path[0] if path else "name"
+        if key == "contributors" and len(path) > 2:
+            key = f"contributor_{contributor_slots[path[1]]}_{path[2]}"
+        fail("A submitted field fails schema constraint " + error.validator, key)
+    if errors:
+        raise Invalid("\n".join(dict.fromkeys(errors)), fields=bad_fields)
+    validate_record(record, project_path(root_number), ctx)
     authorize_change(None, record, actor, ctx, organization_member=organization_member, is_sc=is_sc)
     return record
 
@@ -210,15 +284,18 @@ def changed_files(base_tree, head_tree):
     return {p for p in set(base) | set(head) if base.get(p) != head.get(p)}
 
 
-def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc):
-    if not is_submission_bot(pr["user"]) or branch_issue(pr["head"]["ref"]) != issue["number"]:
+def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc,
+                          original_issue=None, previous_values=None):
+    root = original_issue or issue
+    if not is_submission_bot(pr["user"]) or branch_issue(pr["head"]["ref"]) != root["number"]:
         raise Invalid("Automated PR must be authored by GitHub Actions and bound to its submission Issue")
-    path = project_path(issue["number"])
+    path = project_path(root["number"])
     if path in base_tree:
         raise Invalid("This project's ID already exists; a new submission cannot overwrite it")
     if changed_files(base_tree, head_tree) != {path}:
         raise Invalid("Automated PR may add only the single project file associated with its Issue")
-    expected = proposal(issue, ctx, organization_member=organization_member, is_sc=is_sc)
+    expected = proposal(issue, ctx, organization_member=organization_member, is_sc=is_sc,
+                        original_issue=root, previous_values=previous_values)
     from project_workflow.project_registry import parse_yaml
     if parse_yaml(head_read(path)) != expected:
         raise Invalid("PR data differs from the current Issue. Save the Issue to regenerate the proposal")
