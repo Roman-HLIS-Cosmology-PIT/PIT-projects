@@ -16,7 +16,7 @@ import urllib.request
 from project_workflow.project_registry import Invalid, load_context
 from project_workflow.submission import (
     changed_files, is_submission_bot, issue_version, labelled,
-    number, project_path, project_yaml, proposal, submission_branch, submission_body, FORMATTED_MARKER,
+    number, project_path, project_yaml, proposal, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values,
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
@@ -25,6 +25,7 @@ from project_workflow.project_registry import parse_yaml, validate_record
 
 COMMENT_MARKER = "<!-- pit-project-submission-feedback:v1 -->"
 CANCEL_MARKER = "<!-- pit-project-cancelled:v1 -->"
+ACCEPTED_MARKER = "<!-- pit-project-accepted:v1 -->"
 
 
 def feedback(api, issue_number, message, *, marker=COMMENT_MARKER):
@@ -76,17 +77,19 @@ def branch_snapshot(api, issue):
 
 
 def cancelled(api, issue_number):
-    return any(is_submission_bot(c['user']) and c.get('body','').startswith(CANCEL_MARKER)
+    return any(is_submission_bot(c['user']) and (c.get('body','').startswith(CANCEL_MARKER)
+               or (c.get('body','').startswith(COMMENT_MARKER) and c.get('body','').endswith(CANCEL_MARKER)))
                for c in api.pages(f'issues/{issue_number}/comments'))
 
 
 def cancel_submission(api, issue):
     pr = associated_pr(api,issue['number'])
     if pr and pr.get('merged_at'):
+        feedback(api,issue['number'],f"**Your project has been reviewed and accepted.** [View the accepted pull request](https://github.com/{api.repo}/pull/{pr['number']}).",marker=ACCEPTED_MARKER)
         return 'already-merged'
     sha, _, _ = branch_snapshot(api,issue)
     if sha is None and pr is None:
-        return 'ignored-closure'
+        return 'cancelled' if cancelled(api,issue['number']) else 'ignored-closure'
     if api.get(f"issues/{issue['number']}").get('state') != 'closed':
         return 'closure-reversed'
     if pr:
@@ -102,7 +105,8 @@ def cancel_submission(api, issue):
                 return 'already-merged'
     # Record cancellation first so reopening cannot resurrect a proposal,
     # including after a partial cleanup failure.
-    feedback(api,issue['number'],'**Project submission cancelled.** Its unmerged PR is closed. Use the New Project form to start again.',marker=CANCEL_MARKER)
+    if not cancelled(api,issue['number']):
+        feedback(api,issue['number'],'**Project submission cancelled.** Its unmerged PR is closed. Use the New Project form to start again.',marker=CANCEL_MARKER)
     if sha:
         branch = submission_branch(issue['number'])
         if api.get('git/ref/heads/' + branch)['object']['sha'] != sha:
@@ -198,6 +202,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
             raise Invalid('The project ID already exists; it will not be overwritten')
         if pr and pr['state'] == 'closed':
             raise Invalid('The proposal PR was closed without merging. Ask SC to reopen it; no duplicate PR will be created')
+        _, removed = optional_fields(resolved_values(issue,ctx),ctx)
         warning = repo_check(record['github_url'])
         old_sha, old_commit, old_record = branch_snapshot(api,issue)
         if old_record is not None and old_record != record:
@@ -247,9 +252,12 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         request_review(api,pr,ctx)
         dispatch_validation(api,pr['number'])
         set_invalid(api,issue,False)
-        message = '**Proposal validated.** [Review PR](https://github.com/' + api.repo + f"/pull/{pr['number']}). Review and acceptance are still required.\n\n"
+        message = '**Your project has been submitted.** [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
         if not issue['body'].startswith(FORMATTED_MARKER):
             message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
+        if removed:
+            message += '\n**The following optional entries were removed:**\n\n' + '\n'.join('- ' + safe_text(x) for x in removed)
+            message += '\n\nThese details can be added later.\n'
         if warning:
             message += '\n**Note:** ' + safe_text(warning)
         if len(message) > 64000:
@@ -262,9 +270,11 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
             api.status(current_pr['head']['sha'],'failure','Submission validation failed; see the Issue')
         set_invalid(api,issue,True)
         url = f'https://github.com/{api.repo}/issues/new?template=new-project.yml'
-        message = '**Submission could not be validated.**\n\n' + '\n'.join('- ' + safe_text(line) for line in str(exc).splitlines())
-        message += f'\n\nClose this Issue to cancel the submission, then [submit a new project](<{url}>). Closing it also closes any unmerged proposal PR and removes its branch.'
-        feedback(api,issue_number,message[:64000])
+        message = '**Your project could not be submitted. This Issue has been closed.**\n\n' + '\n'.join('- ' + safe_text(line) for line in str(exc).splitlines())
+        message += f'\n\nAddress the problems above, then [submit a new project](<{url}>).'
+        closed = api.request('PATCH',f'issues/{issue_number}',{'state':'closed','state_reason':'not_planned'})
+        feedback(api,issue_number,message[:63000] + '\n' + CANCEL_MARKER)
+        cancel_submission(api,closed)
         return 'invalid'
 
 

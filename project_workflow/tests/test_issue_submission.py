@@ -226,9 +226,9 @@ class SubmissionTests(unittest.TestCase):
 
     def test_required_fields_and_choices_fail_closed(self):
         for change in ({'lead':''},{'lead_github_username':''},{'working_groups':'_No response_'},
-                       {'working_groups':'UNKNOWN'},{'deliverables_SCM':'CAS-1'},
-                       {'phd_thesis':'bogus'},{'related_links':'javascript:alert(1)'},
-                       {'lead_github_username':'@alice'},{'contributor_1_name':''}):
+                       {'working_groups':'UNKNOWN'},
+                       {'phd_thesis':'bogus'},
+                       {'lead_github_username':'@alice'}):
             with self.subTest(change=change),self.assertRaises(Invalid):self.parse(issue_fixture(**change))
 
     def test_nonmember_and_impersonation_rejected(self):
@@ -238,7 +238,7 @@ class SubmissionTests(unittest.TestCase):
 
     def test_cpp_cannot_be_injected_through_body(self):
         i=issue_fixture();i['body']+='\n\n### Project kind\n\nCPP'
-        with self.assertRaises(Invalid):self.parse(i)
+        self.assertEqual(self.parse(i)['kind'],'EP')
 
     def test_headings_in_fences_remain_literal(self):
         description='```text\n### Working groups\n- [x] CAS\n```\nScientific goals'
@@ -392,3 +392,111 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(issue_intake.process(api,Teams(),12),'created')
         self.assertEqual(api.issue['body'],raw)
         self.assertEqual(parse_yaml(api.data[api.pr['head']['sha']][project_path(12)])['summary'],description)
+
+class OptionalCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.data=source_data();self.ctx=load_context(self.data.__getitem__,paths=self.data)
+
+    def cleaned(self, **changes):
+        from project_workflow.submission import optional_fields,resolved_values
+        i=issue_fixture(**changes)
+        record=proposal(i,self.ctx,organization_member=True,is_sc=False)
+        _,warnings=optional_fields(resolved_values(i,self.ctx),self.ctx)
+        return record,warnings
+
+    def test_invalid_optional_answers_do_not_block_submission(self):
+        record,warnings=self.cleaned(contributor_1_github_username='@bob',github_url='http://example.org',
+            related_links='bad\nhttps://example.org/a\nhttps://example.org/a\nhttps://example.org/b',slack_channel='x'*301)
+        self.assertEqual(record['contributors'],[]);self.assertIsNone(record['github_url']);self.assertIsNone(record['slack_channel'])
+        self.assertEqual(record['related_links'],['https://example.org/a','https://example.org/b'])
+        self.assertEqual(len(warnings),5)
+
+    def test_contributor_cleanup_keeps_first_valid_person(self):
+        record,warnings=self.cleaned(contributor_2_name='Duplicate',contributor_2_github_username='BOB',
+            contributor_3_name='Lead repeated',contributor_3_github_username='alice',
+            contributor_4_name='Valid',contributor_4_github_username='carol',
+            contributor_5_name='Incomplete',contributor_5_github_username='')
+        self.assertEqual(record['contributors'],[{'name':'Bob Example','github_username':'bob'}, {'name':'Valid','github_username':'carol'}])
+        self.assertEqual(len(warnings),3)
+
+    def test_oversized_name_is_removed_without_removing_valid_contributor(self):
+        record,warnings=self.cleaned(contributor_1_name='x'*301,contributor_2_name='Carol',contributor_2_github_username='carol')
+        self.assertEqual(record['contributors'],[{'name':'Carol','github_username':'carol'}]);self.assertEqual(len(warnings),1)
+
+    def test_links_exceeding_limit_are_removed_in_order(self):
+        record,warnings=self.cleaned(related_links='\n'.join(f'https://example.org/{i}' for i in range(102)))
+        self.assertEqual(len(record['related_links']),100);self.assertTrue(record['related_links'][-1].endswith('/99'))
+        self.assertEqual(len(warnings),2)
+
+    def test_invalid_links_and_embedded_credentials_are_removed(self):
+        record,warnings=self.cleaned(related_links='https://alice:secret@example.org/x\nhttps://example.org:bad/a\nhttps://example.org/'+'x'*2050+'\nhttps://example.org/good')
+        self.assertEqual(record['related_links'],['https://example.org/good']);self.assertEqual(len(warnings),3)
+        self.assertNotIn('secret',' '.join(warnings))
+
+    def test_optional_schema_limits_are_read_from_configuration(self):
+        ctx=deepcopy(self.ctx);ctx.schema['$defs']['person']['properties']['name']['maxLength']=3
+        ctx.schema['properties']['slack_channel']['anyOf'][0]['maxLength']=4
+        record=proposal(issue_fixture(slack_channel='long-channel'),ctx,organization_member=True,is_sc=False)
+        self.assertEqual(record['contributors'],[]);self.assertIsNone(record['slack_channel'])
+
+    def test_absent_optional_headings_are_not_blocking(self):
+        i=issue_fixture();i['body']=i['body'].replace('### Contributor 1 name\n\nBob Example\n\n','')
+        record=proposal(i,self.ctx,organization_member=True,is_sc=False)
+        self.assertEqual(record['contributors'],[])
+
+    def test_optional_cleanup_survives_formatting_retry_and_pr_validation(self):
+        api=FakeAPI(issue_fixture(github_url='bad',related_links='bad\nhttps://example.org/a',contributor_1_github_username='@bob'))
+        self.assertEqual(issue_intake.process(api,Teams(),12),'created')
+        self.assertEqual(api.issue['state'],'open')
+        head=api.pr['head']['sha'];record=parse_yaml(api.data[head][project_path(12)])
+        self.assertIsNone(record['github_url']);self.assertEqual(record['contributors'],[])
+        self.assertIn('Your project has been submitted',api.comments[0]['body'])
+        self.assertIn('optional entries were removed',api.comments[0]['body'])
+        self.assertIn('notified',api.comments[0]['body'])
+        self.assertNotIn('/edit',api.comments[0]['body'])
+        base=api.tree(BASE_SHA);tree=api.tree(head)
+        self.assertEqual(validate_bot_snapshot(base,tree,api.reader(base),api.reader(tree),api.pr,api.issue,self.ctx,organization_member=True,is_sc=False),record)
+        issue_intake.process(api,Teams(),12)
+        self.assertEqual(api.pr['head']['sha'],head);self.assertEqual(len(api.comments),1)
+
+    def test_required_failure_closes_issue_once_without_branch(self):
+        api=FakeAPI(issue_fixture(lead=''))
+        self.assertEqual(issue_intake.process(api,Teams(),12),'invalid')
+        self.assertEqual(api.issue['state'],'closed');self.assertEqual(set(api.refs),{'main'})
+        self.assertEqual(len(api.comments),1)
+        self.assertNotIn('Closing it also closes',api.comments[0]['body'])
+        self.assertIn('submit a new project',api.comments[0]['body'])
+        issue_intake.process(api,None,12)
+        self.assertEqual(len(api.comments),1)
+
+    def test_failure_after_proposal_creation_closes_pr_and_removes_branch(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12);api.issue['body']=issue_fixture(lead='')['body']
+        self.assertEqual(issue_intake.process(api,Teams(),12),'invalid')
+        self.assertEqual(api.issue['state'],'closed');self.assertEqual(api.pr['state'],'closed')
+        self.assertEqual(set(api.refs),{'main'});self.assertEqual(len(api.comments),1)
+
+    def test_unverifiable_valid_repo_link_is_kept_with_warning(self):
+        api=FakeAPI(issue_fixture(github_url='https://github.com/example/private'))
+        issue_intake.process(api,Teams(),12,repo_check=lambda url:'Repository could not be verified')
+        record=parse_yaml(api.data[api.pr['head']['sha']][project_path(12)])
+        self.assertEqual(record['github_url'],'https://github.com/example/private')
+        self.assertIn('could not be verified',api.comments[0]['body'])
+
+    def test_merged_closure_posts_one_acceptance_message(self):
+        api=FakeAPI();issue_intake.process(api,Teams(),12)
+        api.pr.update(state='closed',merged_at='2026-10-12T00:00:00Z');api.issue['state']='closed'
+        issue_intake.process(api,None,12);issue_intake.process(api,None,12)
+        accepted=[c for c in api.comments if c['body'].startswith(issue_intake.ACCEPTED_MARKER)]
+        self.assertEqual(len(accepted),1)
+        self.assertIn('reviewed and accepted',accepted[0]['body'])
+
+
+class OptionalDeliverableTests(unittest.TestCase):
+    def test_invalid_and_duplicate_deliverables_are_removed_without_failure(self):
+        from project_workflow.submission import optional_fields,resolved_values
+        data=source_data();ctx=load_context(data.__getitem__,paths=data)
+        issue=issue_fixture(deliverables_SCM='CAS-1, SCM-1, SCM-1, unknown, SCM-2')
+        record=proposal(issue,ctx,organization_member=True,is_sc=False)
+        self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-1','SCM-2']}])
+        _,warnings=optional_fields(resolved_values(issue,ctx),ctx)
+        self.assertEqual(len(warnings),3)

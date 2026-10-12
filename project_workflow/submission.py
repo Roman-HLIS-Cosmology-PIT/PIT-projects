@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from project_workflow.issue_form import (LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID,
-    CONTRIBUTOR_FIELD, option_value, current_labels, label_keys, deliverable_field)
+    CONTRIBUTOR_FIELD, option_value, current_labels, label_keys, deliverable_field, form)
 from project_workflow.project_registry import Invalid, USERNAME, authorize_change, utc_timestamp, validate_record
 
 
@@ -77,15 +77,12 @@ def answers(body, ctx):
             found[current].append(line)
         elif line.strip():
             raise Invalid("Keep the original form headings; unexpected text before the first field")
-    required = {key for key in labels if not CONTRIBUTOR_FIELD.fullmatch(key)}
-    for key in found:
-        match = CONTRIBUTOR_FIELD.fullmatch(key)
-        if match:
-            required.update({f"contributor_{match[1]}_name", f"contributor_{match[1]}_github_username"})
+    required = {item['id'] for item in form(ctx)['body']
+                if item.get('validations',{}).get('required')}
     missing = required - set(found)
     if missing:
         raise Invalid("Restore these form headings: " + ", ".join(labels.get(k, k) for k in sorted(missing)), fields=missing)
-    return {key: "\n".join(value).strip() for key, value in found.items()}
+    return {key: "\n".join(found.get(key,[])).strip() for key in labels}
 
 
 def optional(value):
@@ -153,6 +150,90 @@ def https_url(value):
         raise Invalid("Related links must be complete HTTPS URLs without embedded credentials, one per line")
 
 
+def optional_fields(values, ctx, *, codes=None):
+    """Keep valid optional answers in order; report omissions without blocking.
+
+    The authoritative schema still supplies the limits. Original answers stay
+    in the Issue's hidden source for deterministic independent PR validation.
+    """
+    from jsonschema import Draft202012Validator
+    validator = Draft202012Validator(ctx.schema)
+    def valid(key, value):
+        return validator.evolve(schema=ctx.schema['properties'][key]).is_valid(value)
+    warnings, contributors = [], []
+    seen = {optional(values.get('lead_github_username','')).lower()}
+    slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
+    for i in slots:
+        name = optional(values.get(f'contributor_{i}_name',''))
+        username = optional(values.get(f'contributor_{i}_github_username',''))
+        if not name and not username:
+            continue
+        person = {'name':name,'github_username':username}
+        if not name or not username:
+            reason = 'both a name and GitHub username are needed'
+        elif not valid('contributors',[person]):
+            reason = 'the name or GitHub username has an invalid format or exceeds its allowed length'
+        elif username.lower() in seen:
+            reason = 'the username repeats the lead or an earlier contributor'
+        else:
+            contributors.append(person)
+            seen.add(username.lower())
+            continue
+        warnings.append(f'Contributor {i} was removed: {reason}.')
+    if not valid('contributors',contributors):
+        # Supports an optional maxItems set in the single source schema.
+        limit = ctx.schema['properties']['contributors'].get('maxItems')
+        if limit is not None and len(contributors) > limit:
+            warnings.append(f'Additional contributors were removed: keep at most {limit}.')
+            contributors = contributors[:limit]
+    links, seen_links = [], set()
+    maximum = ctx.schema['properties']['related_links'].get('maxItems')
+    for i, link in enumerate(list_text(values.get('related_links','')).splitlines(),1):
+        link = link.strip()
+        if not link:
+            continue
+        try:
+            https_url(link)
+            if not valid('related_links',[link]):
+                raise Invalid('Invalid link')
+        except Invalid:
+            warnings.append(f'Related link on line {i} was removed: enter a complete HTTPS URL without embedded credentials, within the allowed length.')
+            continue
+        if link in seen_links:
+            warnings.append(f'Related link on line {i} was removed: it duplicates an earlier link.')
+            continue
+        seen_links.add(link)
+        if maximum is not None and len(links) >= maximum:
+            warnings.append(f'Related link on line {i} was removed: keep at most {maximum} links.')
+            continue
+        links.append(link)
+    url = optional(values.get('github_url','')) or None
+    if url and (not valid('github_url',url) or url.rstrip('/').rsplit('/',1)[-1] in {'.','..'}):
+        warnings.append('The main GitHub repository link was removed: use https://github.com/OWNER/REPOSITORY.')
+        url = None
+    slack = optional(values.get('slack_channel','')) or None
+    if slack and not valid('slack_channel',slack):
+        warnings.append('The Slack channel was removed: it exceeds its allowed length or has an invalid format.')
+        slack = None
+    groups = []
+    for code in selected_groups(values.get('working_groups',''),ctx) if codes is None else codes:
+        ids = []
+        selections = optional(values.get(deliverable_field(code),'')).split(',')
+        for i, selection in enumerate(selections,1):
+            if not selection.strip():
+                continue
+            identifier = option_value(selection.strip())
+            if identifier not in ctx.deliverables[code]:
+                warnings.append(f'Deliverable selection {i} for {code} was removed: it is not in that working group’s catalogue.')
+            elif identifier in ids:
+                warnings.append(f'Deliverable selection {i} for {code} was removed: it repeats an earlier selection.')
+            else:
+                ids.append(identifier)
+        groups.append({'code':code,'deliverable_ids':ids})
+    return {'contributors':contributors, 'related_links':links, 'github_url':url,
+            'slack_channel':slack, 'working_groups':groups}, warnings
+
+
 def proposal(issue, ctx, *, organization_member, is_sc):
     if issue.get("pull_request") or issue.get("state") != "open" or not labelled(issue):
         raise Invalid("Submission Issue must be open and have the new-project label")
@@ -171,29 +252,11 @@ def proposal(issue, ctx, *, organization_member, is_sc):
             fail(f"{labels[key]}: an answer is required", key)
     if any(c in values["name"] for c in "\r\n"):
         fail("Project title must be a single line", "name")
-    contributors = []
-    slots = sorted({int(m[1]) for key in values if (m := CONTRIBUTOR_FIELD.fullmatch(key))})
-    for i in slots:
-        name_key, user_key = f"contributor_{i}_name", f"contributor_{i}_github_username"
-        name, username = optional(values[name_key]), optional(values[user_key])
-        if bool(name) != bool(username):
-            fail("Fill both contributor name and GitHub username, or leave both blank", name_key, user_key)
-        elif name:
-            contributors.append({"name":name, "github_username":username})
-    lead = optional(values["lead_github_username"])
+    lead = optional(values['lead_github_username'])
     if lead and (len(lead) > 39 or not USERNAME.fullmatch(lead)):
-        fail("Lead: enter a GitHub username without @ or a profile URL", "lead_github_username")
-    seen = {lead.lower()}
-    for i, person in zip([i for i in slots if optional(values[f'contributor_{i}_name']) and optional(values[f'contributor_{i}_github_username'])], contributors):
-        username = person['github_username']
-        if len(username) > 39 or not USERNAME.fullmatch(username):
-            fail("Contributor: enter a GitHub username without @ or a profile URL", f"contributor_{i}_github_username")
-        if username.lower() in seen:
-            fail("Do not repeat the lead or a contributor", f"contributor_{i}_github_username")
-        seen.add(username.lower())
+        fail('Lead: enter a GitHub username without @ or a profile URL', 'lead_github_username')
     if not is_sc and lead.lower() != actor.lower():
         fail("A member must submit a project with themselves as its lead", "lead_github_username")
-    groups = []
     try:
         codes = selected_groups(values['working_groups'],ctx)
     except Invalid as exc:
@@ -201,25 +264,8 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         codes = []
     if not codes:
         fail("Select at least one working group", "working_groups")
-    for code in codes:
-        key = deliverable_field(code)
-        selections = [x.strip() for x in optional(values.get(key,'' )).split(',') if x.strip()]
-        ids = [option_value(x) for x in selections]
-        if set(ids) - ctx.deliverables[code] or len(set(ids)) != len(ids):
-            fail(f"{code}: choose distinct deliverables from its catalogue", key)
-        groups.append({'code':code,'deliverable_ids':ids})
-    # Values in unselected groups are intentionally ignored, even if malformed.
-    links = [x.strip() for x in list_text(values['related_links']).splitlines() if x.strip()]
-    for link in links:
-        try:
-            https_url(link)
-        except Invalid as exc:
-            fail(str(exc),'related_links')
-    if len(set(links)) != len(links):
-        fail("Remove repeated related links", 'related_links')
-    url = optional(values['github_url'])
-    if url and not re.fullmatch(r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+/?",url):
-        fail("Main repository: use https://github.com/OWNER/REPOSITORY or leave blank", 'github_url')
+    # Values in unselected groups are intentionally ignored.
+    cleaned, _ = optional_fields(values,ctx,codes=codes)
     booleans = {'True':True,'False':False}
     if values['phd_thesis'] not in booleans:
         fail("Select True or False for the PhD thesis question", 'phd_thesis')
@@ -229,11 +275,9 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         'schema_version':ctx.schema['properties']['schema_version']['const'],
         'project_id':project_id(issue['number']), 'name':values['name'], 'kind':'EP',
         'status':ctx.schema['properties']['status'].get('default','active'),
-        'lead':values['lead'], 'lead_github_username':lead, 'contributors':contributors,
-        'summary':values['summary'], 'working_groups':groups,
+        'lead':values['lead'], 'lead_github_username':lead, **cleaned,
+        'summary':values['summary'],
         'phd_thesis':booleans[values['phd_thesis']],
-        'slack_channel':optional(values['slack_channel']) or None,
-        'github_url':url or None, 'related_links':links,
         'submission':{'issue_number':issue['number'], 'submitted_by':actor,
             'submitted_at':utc_timestamp(issue.get('created_at')),
             'issue_title_sha256':hashlib.sha256(issue['title'].encode('utf-8')).hexdigest(),
