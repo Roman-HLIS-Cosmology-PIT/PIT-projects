@@ -95,6 +95,41 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.send('/edit remove contributor username=janesmith')[0],'edited')
         self.assertEqual(self.validate(),self.record())
 
+    def test_remove_by_name_handles_spaces_quotes_case_and_role_scope(self):
+        self.send('/edit add lead name=Jane Smith username=janesmith')
+        self.send('/edit add contributor name=Jane Smith username=janesmith2')
+        self.assertEqual(self.send('/edit remove lead name=jAnE sMiTh')[0],'edited')
+        self.assertEqual(len(self.record()['contributors']),2)
+        self.assertEqual(self.send('/edit remove contributor name="Jane Smith"')[0],'edited')
+        self.assertEqual(self.validate(),self.record())
+
+    def test_ambiguous_name_is_atomic_and_username_disambiguates(self):
+        for role in ('lead','contributor'):
+            with self.subTest(role=role):
+                self.send(f'/edit add {role} name=Jane Smith username=janesmith')
+                self.send(f'/edit add {role} name=Jane Smith username=janesmith2')
+                before=deepcopy(self.record());head=self.api.pr['head']['sha'];body=self.api.issue['body']
+                self.assertEqual(self.send(f'/edit remove {role} name=Jane Smith')[0],'rejected')
+                self.assertIn('More than one person',self.api.comments[-1]['body'])
+                self.assertEqual(self.record(),before)
+                self.assertEqual(self.api.pr['head']['sha'],head)
+                self.assertEqual(self.api.issue['body'],body)
+                self.assertEqual(self.send(f'/edit remove {role} username=janesmith')[0],'edited')
+                self.assertEqual(self.send(f'/edit remove {role} name=Jane Smith')[0],'edited')
+                self.assertEqual(self.validate(),self.record())
+
+    def test_name_selector_rejects_missing_both_unknown_and_last_lead(self):
+        record=deepcopy(self.record())
+        for value in ('name=', 'name=""', 'name="Jane Smith', 'name=Jane Smith username=janesmith',
+                      'username=janesmith name=Jane Smith', 'name=Missing Person', 'username=janesmith'):
+            with self.subTest(value=value):
+                self.assertEqual(self.send('/edit remove lead '+value)[0],'rejected')
+                self.assertEqual(self.record(),record)
+        last=record['leads'][0]['name']
+        self.assertEqual(self.send('/edit remove lead name='+last)[0],'rejected')
+        self.assertIn('At least one project lead must remain',self.api.comments[-1]['body'])
+        self.assertEqual(self.record(),record)
+
     def test_command_confirmations_omit_help_effect_even_on_retry(self):
         result,c=self.send('/edit slack #project-channel')
         self.assertEqual(result,'edited')

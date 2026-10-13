@@ -23,8 +23,8 @@ SPECS = {
     'edit add contributor': ('/edit add contributor name=Jane Smith username=janesmith', 'Add one contributor. Names may contain spaces or be quoted.'),
     'edit add lead': ('/edit add lead name=Jane Smith username=janesmith', 'Add a lead; remove that account from contributors if present.'),
     'edit add links': ('/edit add links https://example.org/a https://example.org/b', 'Append URLs or Markdown links; skip duplicates.'),
-    'edit remove contributor': ('/edit remove contributor username=janesmith', 'Remove that contributor using their GitHub username, not their name.'),
-    'edit remove lead': ('/edit remove lead username=janesmith', 'Remove that lead using their GitHub username, not their name; at least one lead must remain.'),
+    'edit remove contributor': ('/edit remove contributor username=janesmith', 'Remove one contributor by GitHub username, or use `/edit remove contributor name=Jane Smith`. Name matching ignores capitalization; ambiguous names require a username.'),
+    'edit remove lead': ('/edit remove lead username=janesmith', 'Remove one lead by GitHub username, or use `/edit remove lead name=Jane Smith`. Name matching ignores capitalization; ambiguous names require a username. At least one lead must remain.'),
     'edit remove links': ('/edit remove links https://example.org/a', 'Remove the specified related links.'),
     'edit remove slack': ('/edit remove slack', 'Clear the Slack channel.'),
     'edit remove github': ('/edit remove github', 'Clear the main repository link.'),
@@ -119,14 +119,19 @@ def parse_links(text):
     return list(dict.fromkeys(result))
 
 
+def unquote_name(name):
+    name=name.strip()
+    if name.startswith(('"',"'")):
+        if len(name)<2 or name[-1]!=name[0]: raise Invalid('Close the quotes around the name.')
+        name=name[1:-1]
+    return name
+
+
 def person(text):
     match = re.fullmatch(r'name=(.+)\s+username=(\S+)',text)
     if not match:
         raise Invalid('Use name=Jane Smith username=janesmith, in that order.')
-    name, username = match[1].strip(),match[2]
-    if name.startswith(('"',"'")):
-        if len(name)<2 or name[-1]!=name[0]: raise Invalid('Close the quotes around the name.')
-        name=name[1:-1]
+    name, username = unquote_name(match[1]),match[2]
     return {'name':name,'github_username':username}
 
 
@@ -174,14 +179,23 @@ def apply(record, command, ctx):
                 note = 'That account was removed from contributors.'
         else:candidate['contributors'].append(p)
     elif key in {'edit remove lead','edit remove contributor'}:
-        match=re.fullmatch(r'username=(\S+)',value)
-        if not match or len(match[1])>39 or not USERNAME.fullmatch(match[1]):
-            raise Invalid('Use the GitHub username, not the person’s name: username=janesmith.')
-        username=match[1].lower()
+        match=re.fullmatch(r'(name|username)=(.+)',value)
+        if not match or re.search(r'\s(?:name|username)=',match[2]):
+            raise Invalid('Provide exactly one selector: name=Jane Smith or username=janesmith.')
+        selector, selected=match[1],match[2]
         field='leads' if key=='edit remove lead' else 'contributors'
+        if selector=='username':
+            if len(selected)>39 or not USERNAME.fullmatch(selected):
+                raise Invalid('Use the GitHub username, not the person’s name: username=janesmith. To select by name, use name=Jane Smith.')
+            matches=[p for p in candidate[field] if p['github_username'].lower()==selected.lower()]
+        else:
+            selected=unquote_name(selected)
+            if not selected.strip():raise Invalid('Provide a nonempty name: name=Jane Smith.')
+            matches=[p for p in candidate[field] if p['name'].casefold()==selected.casefold()]
+        if not matches:raise Invalid('No person with that '+selector+' is listed in this role. Check the project summary.')
+        if len(matches)>1:raise Invalid('More than one person in this role has that name. Select one by GitHub username: username=janesmith.')
+        username=matches[0]['github_username'].lower()
         retained=[p for p in candidate[field] if p['github_username'].lower()!=username]
-        if len(retained)==len(candidate[field]):
-            raise Invalid('That GitHub username is not listed in this role. Use the username from the project summary, not the person’s name.')
         if field=='leads' and not retained:raise Invalid('At least one project lead must remain.')
         candidate[field]=retained
     elif key in {'edit add links','edit remove links'}:

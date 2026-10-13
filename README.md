@@ -111,7 +111,7 @@ See https://example.org/method/a/b for details.
 /edit add links [Paper](https://example.org/paper) https://example.org/code
 ```
 
-Names may be unquoted or quoted; `name=` comes before `username=`. For removal, `username=` must contain the GitHub username (for example, `username=janesmith`), never the display name. Command paths are recognized only on the first line. The description is everything after the first newline, preserving whitespace, Markdown, URLs and command-like lines. Other commands are single-line. Slashes inside names, titles, descriptions and URLs are data, not additional commands.
+Names may be unquoted or quoted; when adding people, `name=` comes before `username=`. For removal, provide exactly one selector: `/edit remove lead name=Jane Smith` or `/edit remove lead username=janesmith`; the same selectors work for contributors. Names match without regard to capitalization. If several people in that role share a name, use a GitHub username to select one. Command paths are recognized only on the first line. The description is everything after the first newline, preserving whitespace, Markdown, URLs and command-like lines. Other commands are single-line. Slashes inside names, titles, descriptions and URLs are data, not additional commands.
 
 Deliverable replacement takes any number of IDs, keeps each ID once, and replaces the complete list. IDs must exactly match the catalogues: the current SCM catalogue uses `SCM-1`, while CPIP uses `CPI-1`. Dot-separated aliases are not inferred. Groups must already be selected; unknown, ambiguous or unselected-group deliverables reject the whole edit. Group replacement removes deliverables belonging to removed groups and mentions that in the confirmation. Empty deliverable lists remain valid.
 
