@@ -1,0 +1,26 @@
+schema_version: 1
+project_id: P000021
+name: Project test
+kind: EP
+status: active
+lead: Axel G
+lead_github_username: aguinot
+contributors:
+- name: Axel 2
+  github_username: aguinottest
+related_links:
+- https://github.com/aguinot/metacoadd
+github_url: https://github.com/aguinot/metacoadd
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-3
+summary: Test
+phd_thesis: false
+submission:
+  issue_number: 21
+  submitted_by: aguinot
+  submitted_at: '2026-10-13T05:15:56Z'
+  issue_title_sha256: f0cff333db66a4288275835b84f7ce6934c692f93392040fe1dc27aae7538d35
+  issue_body_sha256: 9d86b4e4c1f6ed95f893a2b96d1706e5b5e5886aec7f1f2a47b892fa8f9a37fb
