@@ -63,7 +63,8 @@ def summary_body(record, ctx):
     def person(name, username):
         return safe_text(name) + ' · ' + profile(username)
     rows = ['**Project title**: ' + safe_text(record['name']),
-            '**Project lead**: ' + person(record['lead'],record['lead_github_username']),
+            ('**Project lead**: ' + person(record['leads'][0]['name'],record['leads'][0]['github_username'])
+             if len(record['leads']) == 1 else '**Project leads**:\n\n' + '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['leads'])),
             '**Project kind**: EP — Enhancing Project', '**Working groups and deliverables**:']
     for group in record['working_groups']:
         code = group['code']

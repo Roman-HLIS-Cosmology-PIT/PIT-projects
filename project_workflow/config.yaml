@@ -25,13 +25,12 @@ schema:
   - schema_version
   - project_id
   - name
-  - lead
-  - lead_github_username
   - contributors
   - summary
   - kind
   - status
   - working_groups
+  - leads
   $defs:
     person:
       type: object
@@ -63,18 +62,6 @@ schema:
       type: string
       minLength: 1
       maxLength: 300
-    lead:
-      anyOf:
-      - type: string
-        minLength: 1
-        maxLength: 300
-      - type: 'null'
-      description: One person's display name; null together with lead_github_username for an unassigned CPP/KEY.
-    lead_github_username:
-      anyOf:
-      - $ref: '#/$defs/username'
-      - type: 'null'
-      description: Lead's GitHub username without @; used for authorization, separate from their display name.
     contributors:
       type: array
       uniqueItems: true
@@ -148,6 +135,26 @@ schema:
         issue_title_sha256:
           type: string
           pattern: ^[0-9a-f]{64}$
+        edits:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - comment_id
+            - author_id
+            - body_sha256
+            properties:
+              comment_id:
+                type: integer
+                minimum: 1
+              author_id:
+                type: integer
+                minimum: 1
+              body_sha256:
+                type: string
+                pattern: ^[0-9a-f]{64}$
+          description: Applied command receipts, verified against live GitHub comments in chronological order.
       description: Generated provenance; users do not supply this field.
     working_groups:
       type: array
@@ -170,6 +177,13 @@ schema:
               type: string
               minLength: 1
       description: Selected groups from working_groups/, each with zero or more catalogue deliverables.
+    leads:
+      type: array
+      uniqueItems: true
+      items:
+        $ref: '#/$defs/person'
+      description: Project leads; submission starts with one lead, commands can add more. EP requires at least one
+        lead.
 form:
   name: New Project
   description: Propose a project for review.
@@ -185,6 +199,7 @@ form:
     id: lead
     attributes:
       label: Project lead name
+      description: One lead is required for submission. Additional leads can be added afterward with commands.
     validations:
       required: true
   - type: input

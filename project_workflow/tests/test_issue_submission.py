@@ -436,7 +436,7 @@ class OptionalCleanupTests(unittest.TestCase):
     def test_optional_schema_limits_are_read_from_configuration(self):
         ctx=deepcopy(self.ctx);ctx.schema['$defs']['person']['properties']['name']['maxLength']=3
         ctx.schema['properties']['slack_channel']['anyOf'][0]['maxLength']=4
-        record=proposal(issue_fixture(slack_channel='long-channel'),ctx,organization_member=True,is_sc=False)
+        record=proposal(issue_fixture(slack_channel='long-channel',lead='Ali'),ctx,organization_member=True,is_sc=False)
         self.assertEqual(record['contributors'],[]);self.assertIsNone(record['slack_channel'])
 
     def test_absent_optional_headings_are_not_blocking(self):
@@ -453,7 +453,7 @@ class OptionalCleanupTests(unittest.TestCase):
         self.assertIn('Your project has been submitted',api.comments[0]['body'])
         self.assertIn('optional entries were removed',api.comments[0]['body'])
         self.assertIn('notified',api.comments[0]['body'])
-        self.assertNotIn('/edit',api.comments[0]['body'])
+        self.assertIn('/edit help',api.comments[0]['body'])
         base=api.tree(BASE_SHA);tree=api.tree(head)
         self.assertEqual(validate_bot_snapshot(base,tree,api.reader(base),api.reader(tree),api.pr,api.issue,self.ctx,organization_member=True,is_sc=False),record)
         issue_intake.process(api,Teams(),12)

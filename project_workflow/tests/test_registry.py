@@ -28,7 +28,7 @@ def snapshot(data):
 
 
 def project():
-    return {'schema_version':1,'project_id':'P001','name':'Project','lead':'Alice','lead_github_username':'alice',
+    return {'schema_version':1,'project_id':'P001','name':'Project','leads':[{'name':'Alice','github_username':'alice'}],
         'contributors':[],'summary':'Scientific goals','kind':'EP','status':'active',
         'working_groups':[{'code':'SCM','deliverable_ids':['SCM-1']}], 'phd_thesis':False}
 
@@ -67,7 +67,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_sc_can_manage_cpp_key_without_lead(self):
         for kind in ('CPP','KEY'):
-            p = project();p.update(kind=kind,lead=None,lead_github_username=None)
+            p = project();p.update(kind=kind,leads=[])
             validate_record(p,'projects/P001.yaml',self.ctx)
             authorize_change(None,p,'sc-user',self.ctx,organization_member=True,is_sc=True)
 

@@ -140,7 +140,7 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
                 check_refs(item)
 
     check_refs(schema)
-    required = {"schema_version", "project_id", "name", "lead", "lead_github_username", "contributors", "summary",
+    required = {"schema_version", "project_id", "name", "leads", "contributors", "summary",
                 "kind", "status", "working_groups"}
     if schema.get("additionalProperties") is not False or not required <= set(schema.get("required", [])):
         raise Invalid("The schema must reject unknown fields and require all core fields")
@@ -220,20 +220,15 @@ def validate_record(record: dict, path: str, ctx: Context):
         raise Invalid("Project ID must match its filename")
     if not record["name"].strip() or not record["summary"].strip():
         raise Invalid("Name and summary cannot be whitespace")
-    lead = record["lead_github_username"]
-    if (lead is None) != (record["lead"] is None):
-        raise Invalid("Lead name and GitHub username must both be set or both be null")
-    if lead is not None:
-        if not record["lead"].strip():
-            raise Invalid("Lead name cannot be whitespace")
-        usernames([lead], "Lead")
-    if lead is None and not ctx.policy["kinds"][record["kind"]]["allow_unassigned"]:
-        raise Invalid("This project kind requires a lead")
-    if any(not person["name"].strip() for person in record["contributors"]):
-        raise Invalid("Contributor names cannot be whitespace")
-    roster = usernames([person["github_username"] for person in record["contributors"]], "Contributors")
-    if lead is not None and lead.lower() in roster:
-        raise Invalid("The lead is implicitly a project member; do not repeat them as a contributor")
+    leads = record['leads']
+    if not leads and not ctx.policy['kinds'][record['kind']]['allow_unassigned']:
+        raise Invalid('This project kind requires at least one lead')
+    if any(not p['name'].strip() for p in leads + record['contributors']):
+        raise Invalid('Lead and contributor names cannot be whitespace')
+    lead_users = usernames([p['github_username'] for p in leads], 'Leads')
+    contributor_users = usernames([p['github_username'] for p in record['contributors']], 'Contributors')
+    if lead_users & contributor_users:
+        raise Invalid('Leads are implicitly project members; do not repeat them as contributors')
     seen = set()
     for group in record["working_groups"]:
         code = group["code"]
@@ -274,7 +269,7 @@ def authorize_change(old, new, actor: str, ctx: Context, *, organization_member:
     if old is None:
         if not ctx.policy["kinds"][new["kind"]]["member_can_create"]:
             raise Invalid("Only SC members can declare this project kind")
-        if new["lead_github_username"] is None or new["lead_github_username"].lower() != actor:
+        if not new['leads'] or new['leads'][0]['github_username'].lower() != actor:
             raise Invalid("A member must submit a new project with themselves as its lead")
         return
     raise Invalid("Existing project changes require an SC-authored PR")

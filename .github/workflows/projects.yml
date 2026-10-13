@@ -3,6 +3,8 @@ name: Project workflows
 on:
   issues:
     types: [opened, edited, reopened, labeled, unlabeled, closed]
+  issue_comment:
+    types: [created, edited, deleted]
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened, edited, ready_for_review]
@@ -32,6 +34,9 @@ jobs:
       (github.event_name == 'issues' &&
        (github.event.action == 'closed' ||
         contains(github.event.issue.labels.*.name, 'new-project') || github.event.label.name == 'new-project')) ||
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+       contains(github.event.issue.labels.*.name, 'new-project') &&
+       (github.event.action != 'created' || startsWith(github.event.comment.body, '/'))) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'submit')
     concurrency:
       group: project-submission-and-policy

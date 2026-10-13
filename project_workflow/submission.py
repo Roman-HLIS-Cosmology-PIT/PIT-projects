@@ -234,7 +234,7 @@ def optional_fields(values, ctx, *, codes=None):
             'slack_channel':slack, 'working_groups':groups}, warnings
 
 
-def proposal(issue, ctx, *, organization_member, is_sc):
+def proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
     if issue.get("pull_request") or issue.get("state") != "open" or not labelled(issue):
         raise Invalid("Submission Issue must be open and have the new-project label")
     if not organization_member:
@@ -275,7 +275,7 @@ def proposal(issue, ctx, *, organization_member, is_sc):
         'schema_version':ctx.schema['properties']['schema_version']['const'],
         'project_id':project_id(issue['number']), 'name':values['name'], 'kind':'EP',
         'status':ctx.schema['properties']['status'].get('default','active'),
-        'lead':values['lead'], 'lead_github_username':lead, **cleaned,
+        'leads':[{'name':values['lead'],'github_username':lead}], **cleaned,
         'summary':values['summary'],
         'phd_thesis':booleans[values['phd_thesis']],
         'submission':{'issue_number':issue['number'], 'submitted_by':actor,
@@ -284,7 +284,7 @@ def proposal(issue, ctx, *, organization_member, is_sc):
             'issue_body_sha256':hashlib.sha256(submission_body(issue).encode('utf-8')).hexdigest()},
     }
     validate_record(record,project_path(issue['number']),ctx)
-    if issue['body'].startswith(FORMATTED_MARKER):
+    if verify_summary and issue['body'].startswith(FORMATTED_MARKER):
         from project_workflow.review import formatted_issue_body
         if issue['body'] != formatted_issue_body(record,ctx,submission_body(issue)):
             raise Invalid('The formatted submission was changed; cancel and submit a new project')
@@ -314,7 +314,7 @@ def changed_files(base_tree, head_tree):
     return {p for p in set(base) | set(head) if base.get(p) != head.get(p)}
 
 
-def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc):
+def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc, api=None, teams=None):
     if not is_submission_bot(pr['user']) or branch_issue(pr['head']['ref']) != issue['number']:
         raise Invalid('Automated PR must be authored by GitHub Actions and bound to its submission Issue')
     path = project_path(issue['number'])
@@ -322,8 +322,16 @@ def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue,
         raise Invalid('A new submission cannot overwrite an existing project ID')
     if changed_files(base_tree,head_tree) != {path}:
         raise Invalid('Automated PR may add only its single project YAML file')
-    expected = proposal(issue,ctx,organization_member=organization_member,is_sc=is_sc)
     from project_workflow.project_registry import parse_yaml
-    if parse_yaml(head_read(path)) != expected:
+    stored = parse_yaml(head_read(path))
+    validate_record(stored,path,ctx)
+    if stored.get('submission',{}).get('edits'):
+        if api is None or teams is None:
+            raise Invalid('Command edits require authenticated GitHub comment replay')
+        from project_workflow.commands import current_record
+        expected = current_record(api,issue,ctx,teams,stored)
+    else:
+        expected = proposal(issue,ctx,organization_member=organization_member,is_sc=is_sc)
+    if stored != expected:
         raise Invalid('PR data differs from the submission Issue; ask SC to inspect it')
     return expected

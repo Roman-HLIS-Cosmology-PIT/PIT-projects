@@ -152,8 +152,9 @@ def fresh(api, issue, base_sha, ctx, teams):
         raise Invalid('Issue changed during processing; rerun the submission')
     if api.get('git/ref/heads/main')['object']['sha'] != base_sha:
         raise Invalid('Main changed during processing; rerun the submission')
-    member, sc = authenticate(current,ctx,teams,api.repo)
-    return proposal(current,ctx,organization_member=member,is_sc=sc)
+    from project_workflow.commands import current_record
+    _, _, stored = branch_snapshot(api,current)
+    return current_record(api,current,ctx,teams,stored,allow_previous=True)
 
 
 def set_invalid(api, issue, invalid):
@@ -169,7 +170,7 @@ def set_invalid(api, issue, invalid):
         api.request('DELETE',f"issues/{issue['number']}/labels/invalid")
 
 
-def process(api, teams, issue_number, *, repo_check=repository_warning):
+def process(api, teams, issue_number, *, repo_check=repository_warning, command_sync=False):
     issue = api.get(f'issues/{number(issue_number)}')
     if issue.get('pull_request'):
         return 'ignored'
@@ -196,23 +197,26 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         ctx = load_context(read,paths=base_tree)
         records(base_tree,read,ctx)
         member, sc = authenticate(issue,ctx,teams,api.repo)
-        record = proposal(issue,ctx,organization_member=member,is_sc=sc)
+        from project_workflow.commands import current_record
+        old_sha, old_commit, old_record = branch_snapshot(api,issue)
+        record = current_record(api,issue,ctx,teams,old_record,allow_previous=True)
         path = project_path(issue_number)
         if path in base_tree:
             raise Invalid('The project ID already exists; it will not be overwritten')
         if pr and pr['state'] == 'closed':
             raise Invalid('The proposal PR was closed without merging. Ask SC to reopen it; no duplicate PR will be created')
         _, removed = optional_fields(resolved_values(issue,ctx),ctx)
+        if record['submission'].get('edits'):
+            removed = []
         warning = repo_check(record['github_url'])
-        old_sha, old_commit, old_record = branch_snapshot(api,issue)
         if old_record is not None and old_record != record:
             raise Invalid('The submitted proposal was changed. Cancel it and submit a new project; proposal editing is not supported')
         if pr and old_sha != pr['head']['sha']:
             raise Invalid('Proposal branch changed; retry')
         if fresh(api,issue,base_sha,ctx,teams) != record:
             raise Invalid('Requester permissions changed during processing; retry')
-        if not issue['body'].startswith(FORMATTED_MARKER):
-            rendered = formatted_issue_body(record,ctx,submission_body(issue))
+        rendered = formatted_issue_body(record,ctx,submission_body(issue))
+        if issue['body'] != rendered:
             # Preserve very long native submissions rather than exceeding the
             # Issue body's API limit or silently truncating scientific content.
             if len(rendered.encode('utf-8')) <= 65536:
@@ -255,9 +259,10 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         message = '**Your project has been submitted.** [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
         if not issue['body'].startswith(FORMATTED_MARKER):
             message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
+        message += '\nEntries can be edited using commands. Comment `/help` or `/edit help` to see the available options.\n'
         if removed:
             message += '\n**The following optional entries were removed:**\n\n' + '\n'.join('- ' + safe_text(x) for x in removed)
-            message += '\n\nThese details can be added later.\n'
+            message += '\n\nThese details can be added with commands; use `/edit help` for the options.\n'
         if warning:
             message += '\n**Note:** ' + safe_text(warning)
         if len(message) > 64000:
@@ -265,6 +270,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning):
         feedback(api,issue_number,message)
         return 'updated' if had_pr else 'created'
     except Invalid as exc:
+        if command_sync:
+            raise  # A command synchronization failure must never close the submission.
         current_pr = associated_pr(api,issue_number)
         if current_pr and current_pr['state'] == 'open':
             api.status(current_pr['head']['sha'],'failure','Submission validation failed; see the Issue')
@@ -290,7 +297,11 @@ def main():
         if checkout != api.get('git/ref/heads/main')['object']['sha']:
             raise Invalid('Submission code must run from current main; rerun this workflow')
         teams = TeamDirectory(os.environ['SC_TEAM_READ_TOKEN']) if os.environ.get('SC_TEAM_READ_TOKEN') else None
-        result = process(api,teams,issue_number)
+        if event.get('comment'):
+            from project_workflow.commands import process as command_process
+            result = command_process(api,teams,issue_number,event['comment'],action=event.get('action','created'))
+        else:
+            result = process(api,teams,issue_number)
         print(json.dumps({'issue':issue_number,'result':result}))
         return 0
     except (urllib.error.HTTPError,Invalid,OSError,ValueError,KeyError,TypeError) as exc:

@@ -13,6 +13,7 @@ body:
   id: lead
   attributes:
     label: Project lead name
+    description: One lead is required for submission. Additional leads can be added afterward with commands.
   validations:
     required: true
 - type: input

@@ -247,7 +247,7 @@ def main():
                 actor = issue["user"]["login"]
                 validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
                     organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
-                    is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+                    is_sc=team_api.is_active_member(*ctx.sc_team, actor), api=api, teams=team_api)
             count = len(records(head_tree, head_read, ctx))
         else:
             count = validate_snapshot(base_tree, head_tree, base_read, head_read, pr["user"]["login"], sc_lookup=team_api.is_active_member)
@@ -261,7 +261,7 @@ def main():
             actor = issue["user"]["login"]
             validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, current, ctx,
                 organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
-                is_sc=team_api.is_active_member(*ctx.sc_team, actor))
+                is_sc=team_api.is_active_member(*ctx.sc_team, actor), api=api, teams=team_api)
         elif generation_pr:
             validate_generated_snapshot(api, base_tree, head_tree, base_read, head_read, pr, ctx)
         elif not team_api.is_active_member(*ctx.sc_team, pr["user"]["login"]):

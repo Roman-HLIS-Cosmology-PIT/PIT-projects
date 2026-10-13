@@ -9,8 +9,8 @@ Operation: new project / update project / administrative change
 
 ## SC review
 
-- [ ] Project details include the lead's name and GitHub username, and each contributor's name and GitHub username.
-- [ ] Names match the intended accounts; unassigned CPP/KEY lead fields are both null.
+- [ ] Project details include the leads' names and GitHub usernames, and each contributor's name and GitHub username.
+- [ ] Names match the intended accounts; unassigned CPP/KEY lead lists are empty.
 - [ ] Working groups and their deliverables are appropriate.
 - [ ] Project kind is appropriate; CPP/KEY declarations are SC decisions.
 - [ ] The `Project policy` check passes.
