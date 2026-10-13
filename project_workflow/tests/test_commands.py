@@ -195,6 +195,44 @@ class CommandTests(unittest.TestCase):
         self.assertIn('Recoverable edit',self.api.issue['body'])
         self.assertEqual(self.validate(),self.record())
 
+    def test_two_staged_edits_recover_original_summary_on_manual_submit(self):
+        original=self.api.issue['body']
+        with patch.object(issue_intake,'process',side_effect=OSError('Interrupted')), patch.object(commands.time,'sleep'):
+            self.assertEqual(self.send('/edit add contributor name=Axel P username=aguinottest')[0],'incomplete')
+            self.assertEqual(self.send('/edit add links https://example.org/a https://example.org/b')[0],'incomplete')
+        self.assertEqual(self.api.issue['body'],original)
+        self.assertEqual(len(self.record()['submission']['edits']),2)
+        self.assertEqual(self.send('/description')[0],'description')
+        self.assertEqual(issue_intake.process(self.api,self.teams,12),'updated')
+        self.assertIn('aguinottest',self.api.issue['body'])
+        self.assertIn('https://example.org/b',self.api.pr['body'])
+        self.assertEqual(len(self.api.prs),1)
+        self.assertEqual(self.validate(),self.record())
+
+    def test_stale_summary_recovery_still_rejects_arbitrary_body_changes(self):
+        with patch.object(issue_intake,'process',side_effect=OSError('Interrupted')), patch.object(commands.time,'sleep'):
+            self.send('/edit title First')
+            self.send('/edit title Second')
+        self.api.issue['body']=self.api.issue['body'].replace('**Project title**:', '**Changed title**:')
+        with self.assertRaisesRegex(Invalid,'rendered submission'):
+            commands.current_record(self.api,self.api.issue,self.ctx,self.teams,self.record(),allow_previous=True)
+
+    def test_transient_pr_head_lag_retries_sync_without_duplicate_edit(self):
+        submit=issue_intake.process
+        calls=[]
+        def delayed(*args,**kwargs):
+            calls.append(None)
+            if len(calls)<3:raise Invalid('Proposal branch changed; retry')
+            return submit(*args,**kwargs)
+        with patch.object(issue_intake,'process',side_effect=delayed) as mocked, patch.object(commands.time,'sleep'):
+            result,_=self.send('/edit title Retry safely')
+        self.assertEqual(result,'edited')
+        self.assertEqual(mocked.call_count,3)
+        self.assertEqual(len(self.record()['submission']['edits']),1)
+        self.assertIn('Retry safely',self.api.issue['body'])
+        self.assertIn('Retry safely',self.api.pr['body'])
+        self.assertEqual(self.validate(),self.record())
+
     def test_user_comment_changed_before_processing_is_not_applied(self):
         c=self.comment('/edit title Original request')
         next(x for x in self.api.comments if x['id']==c['id'])['body']='/edit title Altered request'
@@ -270,6 +308,8 @@ class CommandTests(unittest.TestCase):
                  patch.object(issue_intake.subprocess,'check_output',return_value=BASE_SHA+'\n'),\
                  redirect_stdout(io.StringIO()),redirect_stderr(io.StringIO()):
                 self.assertEqual(issue_intake.main(),0)
+                with patch.object(commands,'process',return_value='incomplete'):
+                    self.assertEqual(issue_intake.main(),1)
         self.assertEqual(self.record()['name'],'Webhook title')
         self.assertEqual(self.validate(),self.record())
 

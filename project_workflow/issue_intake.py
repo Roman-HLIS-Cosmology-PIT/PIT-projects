@@ -303,7 +303,7 @@ def main():
         else:
             result = process(api,teams,issue_number)
         print(json.dumps({'issue':issue_number,'result':result}))
-        return 0
+        return 1 if result == 'incomplete' else 0
     except (urllib.error.HTTPError,Invalid,OSError,ValueError,KeyError,TypeError) as exc:
         print(json.dumps({'error':f'GitHub API error (HTTP {exc.code})' if isinstance(exc,urllib.error.HTTPError) else 'Submission automation could not complete'}),file=sys.stderr)
         if api is not None and issue_number is not None:

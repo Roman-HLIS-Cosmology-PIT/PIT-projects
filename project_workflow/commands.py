@@ -2,6 +2,9 @@
 from copy import deepcopy
 import hashlib
 import re
+import sys
+import time
+import urllib.error
 
 from project_workflow.project_registry import Invalid, USERNAME, validate_record
 from project_workflow.submission import (number, proposal, submission_body, project_path,
@@ -226,7 +229,9 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
     record=proposal(issue,ctx,organization_member=member,is_sc=sc,verify_summary=False)
     source=submission_body(issue)
     edits=(stored or {}).get('submission',{}).get('edits',[])
-    previous=None
+    # A failed API update can leave the visible Issue several commands behind.
+    # Accept only exact views of authenticated history, never arbitrary edits.
+    previous_matches = False
     if edits:
         comments={c['id']:c for c in api.pages(f"issues/{issue['number']}/comments")}
         seen=0
@@ -237,7 +242,9 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
                 raise Invalid('An applied command was changed, deleted, or reordered. Its proposal cannot pass validation.')
             seen=identifier
             authorize(record,issue,comment,roles)
-            previous=deepcopy(record)
+            if allow_previous:
+                previous_matches = previous_matches or issue['body']==formatted_issue_body(record,ctx,source) or (
+                    not record['submission'].get('edits') and issue['body']==source)
             command=parse(comment['body'])
             record,_=apply(record,command,ctx)
             record['submission'].setdefault('edits',[]).append(item)
@@ -247,8 +254,8 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
         raise Invalid('The submitted proposal was changed outside the command workflow.')
     expected=formatted_issue_body(record,ctx,source)
     matches=issue['body']==expected or (not edits and not issue['body'].startswith(FORMATTED_MARKER))
-    if not matches and allow_previous and previous is not None:
-        matches=issue['body']==formatted_issue_body(previous,ctx,source) or (not previous['submission'].get('edits') and issue['body']==source)
+    if not matches and allow_previous:
+        matches=previous_matches
     if not matches:raise Invalid('The rendered submission was changed outside the command workflow.')
     return record
 
@@ -387,13 +394,25 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         staged=True
         # The normal writer repairs interrupted synchronization from the receipt.
         # It reads GitHub comments again, never trusting the proposed YAML as authority.
-        result=submit(api,teams,issue_number,command_sync=True)
+        # GitHub's PR head can briefly lag behind a successful ref update.
+        # Synchronization is idempotent; retry without applying the edit again.
+        for attempt in range(3):
+            try:
+                result=submit(api,teams,issue_number,command_sync=True)
+                break
+            except (Invalid,OSError,ValueError,KeyError,TypeError):
+                if attempt==2:raise
+                time.sleep(1)
         if result not in {'created','updated'}:raise Invalid('The edit could not finish synchronization; ask SC to inspect the workflow.')
         feedback(api,issue_number,'**Edit confirmed.** '+safe_text(note)+'\n\nThe Issue summary and [review PR](https://github.com/'+api.repo+f"/pull/{pr['number']}) have been updated.",marker=marker)
         return 'edited'
     except (Invalid,OSError,ValueError,KeyError,TypeError) as exc:
         if staged:
-            text='**The edit was recorded, but synchronization could not complete.** Ask SC to rerun this command workflow. The PR remains blocked until validation passes.'
+            # Never print HTTP response bodies, request objects or credentials.
+            reason = ('GitHub API error (HTTP '+str(exc.code)+')' if isinstance(exc,urllib.error.HTTPError)
+                      else str(exc) if isinstance(exc,Invalid) else type(exc).__name__)
+            print('Command synchronization failed: '+reason.replace('\n',' ')[:500],file=sys.stderr)
+            text='**The edit was recorded, but synchronization could not complete.** Ask SC to run Project workflows on main with operation `submit` and this Issue number. The PR remains blocked until validation passes.'
         else:
             text='**Command ignored.** '+safe_text(str(exc))+'\n\nUse `/help` or the relevant help command, such as `/edit add contributor help`.'
         feedback(api,issue_number,text,marker=marker)
