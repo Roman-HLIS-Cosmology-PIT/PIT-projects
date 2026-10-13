@@ -96,11 +96,11 @@ See https://example.org/method/a/b for details.
 ```
 
 ```text
-/edit deliverable SCM-1 SCM-2 CPI-1
+/edit deliverables SCM-1 SCM-2 ...
 ```
 
 ```text
-/edit add contributor name=Axel P username=aguiit
+/edit add contributor name=Jane Smith username=janesmith
 ```
 
 ```text
@@ -111,15 +111,15 @@ See https://example.org/method/a/b for details.
 /edit add links [Paper](https://example.org/paper) https://example.org/code
 ```
 
-Names may be unquoted or quoted; `name=` comes before `username=`. Command paths are recognized only on the first line. The description is everything after the first newline, preserving whitespace, Markdown, URLs and command-like lines. Other commands are single-line. Slashes inside names, titles, descriptions and URLs are data, not additional commands.
+Names may be unquoted or quoted; `name=` comes before `username=`. For removal, `username=` must contain the GitHub username (for example, `username=janesmith`), never the display name. Command paths are recognized only on the first line. The description is everything after the first newline, preserving whitespace, Markdown, URLs and command-like lines. Other commands are single-line. Slashes inside names, titles, descriptions and URLs are data, not additional commands.
 
 Deliverable replacement takes any number of IDs, keeps each ID once, and replaces the complete list. IDs must exactly match the catalogues: the current SCM catalogue uses `SCM-1`, while CPIP uses `CPI-1`. Dot-separated aliases are not inferred. Groups must already be selected; unknown, ambiguous or unselected-group deliverables reject the whole edit. Group replacement removes deliverables belonging to removed groups and mentions that in the confirmation. Empty deliverable lists remain valid.
 
-Other commands include `/edit slack #channel`, `/edit github https://github.com/OWNER/REPOSITORY`, `/edit phd true|false`, `/edit remove contributor username=account`, `/edit remove lead username=account`, `/edit remove links URL1 URL2`, `/edit remove slack`, `/edit remove github`, and `/edit remove deliverable`. Removing the final lead is rejected. Adding a contributor already listed as a lead/contributor is rejected; adding a lead who is currently a contributor promotes them and removes their contributor entry. The initial form still accepts only one lead.
+Other commands include `/edit slack #channel`, `/edit github https://github.com/OWNER/REPOSITORY`, `/edit phd true|false`, `/edit remove contributor username=janesmith`, `/edit remove lead username=janesmith`, `/edit remove links URL1 URL2`, `/edit remove slack`, `/edit remove github`, and `/edit remove deliverables`. Removing the final lead is rejected. Adding a contributor already listed as a lead/contributor is rejected; adding a lead who is currently a contributor promotes them and removes their contributor entry. The initial form still accepts only one lead.
 
 `/deliverables` lists all groups; `/deliverables SCM` or `/deliverables SCM CPIP` filters that list. `/description` prints exact Markdown source in a copyable code block, including nested fences. After acceptance, this information command reads the trusted accepted record on main. Commands cannot edit accepted projects; later changes require SC review through the existing administrative process.
 
-A valid command updates the original rendered Issue, the same proposal branch, the project YAML, the PR description, and the PR title when appropriate. The actual Issue title remains the original submission title. Submission time and project ID are preserved. Every edit receives a confirmation; help/info also receive a reply. Retries reuse that command's reply and never create a second PR or duplicate edit.
+A valid command updates the original rendered Issue, the same proposal branch, the project YAML, the PR description, and the PR title when appropriate. The title command also renames the Issue. Its original title is retained in generated provenance for validation. Submission time and project ID are preserved. Every edit receives a command-specific confirmation, such as **Edit slack confirmed**, without repeating its help description; help/info also receive a reply. Retries reuse that command's reply and never create a second PR or duplicate edit.
 
 Unlike permissive cleanup during initial submission, command edits are strict and atomic at validation: one invalid supplied value rejects the whole request. Rejected commands change no project data, do not close the Issue and do not invalidate the existing PR status. Adding duplicate links skips duplicates, and a request that already matches the record gets a no-change confirmation. Ordinary non-command comments get no bot response.
 
@@ -133,12 +133,13 @@ GitHub does not provide a single transaction spanning a branch, Issue and PR. A 
 
 ## Install this update
 
-This is a breaking development change from single lead fields to `leads`; no legacy format support is included. The patch is based on main commit `e86734f3a6423f39ae057346b0f1e4471f2038ed`, whose accepted registry is empty.
+This patch is based on main commit `28bf14aae08be504f9086a0650c516a6c7f764b2`. Existing proposals and their recorded commands remain valid. Use `/edit deliverables` and `/edit remove deliverables` for new commands; the old singular spelling remains readable for existing command receipts.
 
-1. Apply the patch and review `git diff`. Cancel any old test proposals before installation, then use a fresh submission for command testing.
-2. Publish this code/schema update to main through an authorized direct commit or an administrator-assisted installation merge. The old trusted validator/generator expects the old lead schema, so normal checks on the installation PR cannot understand the new schema. Routine configuration updates afterward still support main commits and SC PRs.
+1. Apply the patch and review `git diff`. Keep existing proposals open.
+2. Publish the update to main through your usual direct commit or SC PR process.
 3. Run Project maintenance on main to refresh the form. It also runs after the publication push. No new secret or permission is required; the existing submission job handles `issue_comment` events with trusted main code.
 4. Review routing remains `aguinot`. Live test the commands below before production.
+5. For a title command recorded before this update, post `/edit title Your project title` again as a new comment to rename its Issue too. Do not change the previous command comment.
 
 ## Test on GitHub
 
@@ -147,7 +148,7 @@ This is a breaking development change from single lead fields to `leads`; no leg
 - Retry through **Project workflows → Run workflow → submit**, entering the Issue number. It must reuse its PR and branch.
 - Try `/help` and help at each nested level. Use `/deliverables SCM CPIP` to see actual IDs and `/description` to copy the Markdown source.
 - Add a co-lead, then post a command as that account. Try the same as a contributor: the edit must be rejected without touching the proposal. Removing the last lead must also be rejected.
-- Change title, description, working groups, deliverables, links, Slack and PhD answer. Check that the original Issue title stays unchanged while its rendered body, YAML and same PR update.
+- Change title, description, working groups, deliverables, links, Slack and PhD answer. Check that a title edit updates the Issue title along with its rendered body, YAML and same PR.
 - Include a URL with slashes in a multiline description and add links in both plain and Markdown form. An invalid link mixed with a valid one must reject the whole command.
 - Rerun a successful command Actions run: one receipt, one confirmation reply and the same PR/branch must remain. Editing/deleting an applied comment must block Project policy.
 - Submit another valid project before merging the first. It must have its own Issue-number branch and PR.

@@ -216,13 +216,17 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if fresh(api,issue,base_sha,ctx,teams) != record:
             raise Invalid('Requester permissions changed during processing; retry')
         rendered = formatted_issue_body(record,ctx,submission_body(issue))
-        if issue['body'] != rendered:
+        target_title = record['name'] if 'original_title' in record['submission'] else issue['title']
+        if issue['body'] != rendered or issue['title'] != target_title:
             # Preserve very long native submissions rather than exceeding the
             # Issue body's API limit or silently truncating scientific content.
             if len(rendered.encode('utf-8')) <= 65536:
                 fresh(api,issue,base_sha,ctx,teams)
-                updated = api.request('PATCH',f'issues/{issue_number}',{'body':rendered})
-                if (updated.get('body') != rendered or updated.get('title') != issue['title']
+                payload = {'body':rendered}
+                if issue['title'] != target_title:
+                    payload['title'] = target_title
+                updated = api.request('PATCH',f'issues/{issue_number}',payload)
+                if (updated.get('body') != rendered or updated.get('title') != target_title
                         or updated.get('user') != issue['user']):
                     raise Invalid('Issue changed while formatting; inspect it before retrying')
                 issue = updated

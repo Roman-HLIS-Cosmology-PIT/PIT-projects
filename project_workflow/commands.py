@@ -13,23 +13,23 @@ from project_workflow.review import formatted_issue_body, safe_text
 
 # Syntax and help live together; adding a command changes this module only.
 SPECS = {
-    'edit title': ('/edit title New project title', 'Replace the stored project and PR titles; leave the Issue title alone.'),
+    'edit title': ('/edit title New project title', 'Replace the project, Issue and PR titles.'),
     'edit description': ('/edit description\nYour complete Markdown description', 'Replace the description with all lines after the first newline.'),
-    'edit deliverable': ('/edit deliverable ID1 ID2 ...', 'Replace all deliverables. Use catalogue IDs; their groups must already be selected.'),
+    'edit deliverables': ('/edit deliverables SCM-1 SCM-2 ...', 'Replace all deliverables.'),
     'edit working-group': ('/edit working-group SCM CPIP', 'Replace working groups and remove deliverables for groups no longer selected.'),
     'edit slack': ('/edit slack #project-channel', 'Set or replace the Slack channel.'),
     'edit github': ('/edit github https://github.com/OWNER/REPOSITORY', 'Set or replace the main repository link.'),
     'edit phd': ('/edit phd true', 'Set the PhD answer: true or false.'),
-    'edit add contributor': ('/edit add contributor name=Axel P username=aguiit', 'Add one contributor. Names may contain spaces or be quoted.'),
-    'edit add lead': ('/edit add lead name=Axel P username=aguiit', 'Add a lead; remove that account from contributors if present.'),
+    'edit add contributor': ('/edit add contributor name=Jane Smith username=janesmith', 'Add one contributor. Names may contain spaces or be quoted.'),
+    'edit add lead': ('/edit add lead name=Jane Smith username=janesmith', 'Add a lead; remove that account from contributors if present.'),
     'edit add links': ('/edit add links https://example.org/a https://example.org/b', 'Append URLs or Markdown links; skip duplicates.'),
-    'edit remove contributor': ('/edit remove contributor username=aguiit', 'Remove that contributor.'),
-    'edit remove lead': ('/edit remove lead username=aguiit', 'Remove that lead; at least one lead must remain.'),
+    'edit remove contributor': ('/edit remove contributor username=janesmith', 'Remove that contributor using their GitHub username, not their name.'),
+    'edit remove lead': ('/edit remove lead username=janesmith', 'Remove that lead using their GitHub username, not their name; at least one lead must remain.'),
     'edit remove links': ('/edit remove links https://example.org/a', 'Remove the specified related links.'),
     'edit remove slack': ('/edit remove slack', 'Clear the Slack channel.'),
     'edit remove github': ('/edit remove github', 'Clear the main repository link.'),
-    'edit remove deliverable': ('/edit remove deliverable', 'Clear all deliverables; retain working groups.'),
-    'deliverables': ('/deliverables [SCM CPIP]', 'List catalogue deliverables for all groups or the specified groups.'),
+    'edit remove deliverables': ('/edit remove deliverables', 'Clear all deliverables; retain working groups.'),
+    'deliverables': ('/deliverables SCM CPIP', 'List catalogue deliverables for the specified groups. Use /deliverables alone for all groups.'),
     'description': ('/description', 'Print the current description as copyable Markdown source.'),
 }
 
@@ -56,6 +56,9 @@ def parse(body):
         raise Invalid('Command is missing or exceeds 64 KiB.')
     lines = body.split('\n',1)
     first = lines[0].strip()
+    # Existing authenticated receipts contain the old singular spelling.
+    # Normalize only the header; never alter the original comment or its hash.
+    first = re.sub(r'^/edit (remove )?deliverable(?=\s|$)', r'/edit \1deliverables', first)
     if not first.startswith('/'):
         return None
     words = first[1:].split()
@@ -119,7 +122,7 @@ def parse_links(text):
 def person(text):
     match = re.fullmatch(r'name=(.+)\s+username=(\S+)',text)
     if not match:
-        raise Invalid('Use name=Full Name username=account, in that order.')
+        raise Invalid('Use name=Jane Smith username=janesmith, in that order.')
     name, username = match[1].strip(),match[2]
     if name.startswith(('"',"'")):
         if len(name)<2 or name[-1]!=name[0]: raise Invalid('Close the quotes around the name.')
@@ -132,11 +135,12 @@ def apply(record, command, ctx):
     key, value = command
     if not key.startswith('edit '): raise Invalid('This is not an edit command.')
     candidate = deepcopy(record)
-    note = SPECS[key][1]
+    note = ''
     if key in {'edit title','edit description','edit slack','edit github'}:
         if not value.strip(): raise Invalid('Provide a nonempty value.')
         field={'edit title':'name','edit description':'summary','edit slack':'slack_channel','edit github':'github_url'}[key]
-        if field=='name' and any(x in value for x in '\r\n'):raise Invalid('The project title must be a single line.')
+        if field=='name' and (any(x in value for x in '\r\n') or len(value)>256):
+            raise Invalid('The project title must be a single line of at most 256 characters.')
         candidate[field]=value
     elif key=='edit phd':
         if value.lower() not in {'true','false'}:raise Invalid('Use true or false.')
@@ -147,10 +151,10 @@ def apply(record, command, ctx):
         old={g['code']:g['deliverable_ids'] for g in candidate['working_groups']}
         omitted=[i for code,ids in old.items() if code not in codes for i in ids]
         candidate['working_groups']=[{'code':c,'deliverable_ids':old.get(c,[])} for c in codes]
-        if omitted:note += ' Deliverables for removed groups were removed: '+', '.join(omitted)+'.'
-    elif key=='edit deliverable':
+        if omitted:note = 'Deliverables for removed groups were removed: '+', '.join(omitted)+'.'
+    elif key=='edit deliverables':
         ids=list(dict.fromkeys(value.split()))
-        if not ids:raise Invalid('Provide at least one deliverable, or use /edit remove deliverable to clear the list.')
+        if not ids:raise Invalid('Provide at least one deliverable, or use /edit remove deliverables to clear the list.')
         selected={g['code'] for g in candidate['working_groups']}
         groups={c:[] for c in selected}
         for identifier in ids:
@@ -167,15 +171,17 @@ def apply(record, command, ctx):
             candidate['leads'].append(p)
             if username in contributors:
                 candidate['contributors']=[p for p in candidate['contributors'] if p['github_username'].lower()!=username]
-                note += ' That account was removed from contributors.'
+                note = 'That account was removed from contributors.'
         else:candidate['contributors'].append(p)
     elif key in {'edit remove lead','edit remove contributor'}:
         match=re.fullmatch(r'username=(\S+)',value)
-        if not match:raise Invalid('Use username=account.')
+        if not match or len(match[1])>39 or not USERNAME.fullmatch(match[1]):
+            raise Invalid('Use the GitHub username, not the person’s name: username=janesmith.')
         username=match[1].lower()
         field='leads' if key=='edit remove lead' else 'contributors'
         retained=[p for p in candidate[field] if p['github_username'].lower()!=username]
-        if len(retained)==len(candidate[field]):raise Invalid('That account is not listed in this role.')
+        if len(retained)==len(candidate[field]):
+            raise Invalid('That GitHub username is not listed in this role. Use the username from the project summary, not the person’s name.')
         if field=='leads' and not retained:raise Invalid('At least one project lead must remain.')
         candidate[field]=retained
     elif key in {'edit add links','edit remove links'}:
@@ -185,9 +191,9 @@ def apply(record, command, ctx):
         else:
             if any(url not in existing for url in links):raise Invalid('At least one specified link is not in the current related links.')
             candidate['related_links']=[url for url in existing if url not in links]
-    elif key in {'edit remove slack','edit remove github','edit remove deliverable'}:
+    elif key in {'edit remove slack','edit remove github','edit remove deliverables'}:
         if value:raise Invalid('This command takes no arguments.')
-        if key=='edit remove deliverable':
+        if key=='edit remove deliverables':
             for g in candidate['working_groups']:g['deliverable_ids']=[]
         else:candidate['slack_channel' if key=='edit remove slack' else 'github_url']=None
     validate_record(candidate,project_path(candidate['submission']['issue_number']),ctx)
@@ -226,12 +232,21 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
     """Reconstruct the YAML from native answers plus authenticated command comments."""
     roles=Roles(teams,ctx)
     member,sc=roles.get(issue['user']['login'])
-    record=proposal(issue,ctx,organization_member=member,is_sc=sc,verify_summary=False)
+    original_title=(stored or {}).get('submission',{}).get('original_title')
+    source_issue=deepcopy(issue)
+    if original_title is not None:
+        if hashlib.sha256(original_title.encode('utf-8')).hexdigest()!=stored['submission']['issue_title_sha256']:
+            raise Invalid('The original Issue title does not match its submission receipt.')
+        source_issue['title']=original_title
+    record=proposal(source_issue,ctx,organization_member=member,is_sc=sc,verify_summary=False)
+    if original_title is not None:
+        record['submission']['original_title']=original_title
     source=submission_body(issue)
     edits=(stored or {}).get('submission',{}).get('edits',[])
     # A failed API update can leave the visible Issue several commands behind.
     # Accept only exact views of authenticated history, never arbitrary edits.
     previous_matches = False
+    has_title_command = False
     if edits:
         comments={c['id']:c for c in api.pages(f"issues/{issue['number']}/comments")}
         seen=0
@@ -243,17 +258,23 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
             seen=identifier
             authorize(record,issue,comment,roles)
             if allow_previous:
-                previous_matches = previous_matches or issue['body']==formatted_issue_body(record,ctx,source) or (
+                body_matches = issue['body']==formatted_issue_body(record,ctx,source) or (
                     not record['submission'].get('edits') and issue['body']==source)
+                title_matches = original_title is None or issue['title'] in {record['name'],original_title}
+                previous_matches = previous_matches or (body_matches and title_matches)
             command=parse(comment['body'])
+            if command[0]=='edit title':has_title_command=True
             record,_=apply(record,command,ctx)
             record['submission'].setdefault('edits',[]).append(item)
         if record!=stored:
             raise Invalid('Proposal data differs from its authenticated command history.')
+        if original_title is not None and not has_title_command:
+            raise Invalid('Renaming the Issue requires an authenticated title command.')
     elif stored is not None and stored!=record:
         raise Invalid('The submitted proposal was changed outside the command workflow.')
     expected=formatted_issue_body(record,ctx,source)
-    matches=issue['body']==expected or (not edits and not issue['body'].startswith(FORMATTED_MARKER))
+    matches=(issue['body']==expected or (not edits and not issue['body'].startswith(FORMATTED_MARKER))) and (
+        original_title is None or issue['title']==record['name'])
     if not matches and allow_previous:
         matches=previous_matches
     if not matches:raise Invalid('The rendered submission was changed outside the command workflow.')
@@ -263,6 +284,10 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
 def source_block(text):
     fence='`'*max(3,1+max((len(s) for s in re.findall(r'`+',text)),default=0))
     return fence+'text\n'+text+'\n'+fence
+
+
+def confirmation(key):
+    return '**'+key.capitalize()+' confirmed.**'
 
 
 def process(api, teams, issue_number, event_comment, *, action='created'):
@@ -352,15 +377,18 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
             staged=True
             result=submit(api,teams,issue_number,command_sync=True)
             if result not in {'created','updated'}:raise Invalid('The edit could not finish synchronization.')
-            feedback(api,issue_number,'**Edit confirmed.** The Issue summary and the same PR are synchronized. '+SPECS[key][1],marker=marker)
+            feedback(api,issue_number,confirmation(key)+' The Issue summary and the same PR are synchronized.',marker=marker)
             return 'replayed'
         authorize(current,issue,comment,roles)
         history=current['submission'].get('edits',[])
         if history and identifier<=history[-1]['comment_id']:
             raise Invalid('This comment predates the latest applied edit. Post the command in a new comment.')
         candidate,note=apply(current,command,ctx)
+        if key=='edit title':
+            # Keep the original submission input before changing its Issue title.
+            candidate['submission'].setdefault('original_title',issue['title'])
         if candidate==current:
-            feedback(api,issue_number,'**Edit confirmed.** No change was needed; the requested values are already present.',marker=marker)
+            feedback(api,issue_number,confirmation(key)+' No change was needed; the requested values are already present.',marker=marker)
             return 'unchanged'
         candidate['submission'].setdefault('edits',[]).append(receipt(comment))
         rendered=formatted_issue_body(candidate,ctx,submission_body(issue))
@@ -404,7 +432,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
                 if attempt==2:raise
                 time.sleep(1)
         if result not in {'created','updated'}:raise Invalid('The edit could not finish synchronization; ask SC to inspect the workflow.')
-        feedback(api,issue_number,'**Edit confirmed.** '+safe_text(note)+'\n\nThe Issue summary and [review PR](https://github.com/'+api.repo+f"/pull/{pr['number']}) have been updated.",marker=marker)
+        feedback(api,issue_number,confirmation(key)+(' '+safe_text(note) if note else '')+'\n\nThe Issue summary and [review PR](https://github.com/'+api.repo+f"/pull/{pr['number']}) have been updated.",marker=marker)
         return 'edited'
     except (Invalid,OSError,ValueError,KeyError,TypeError) as exc:
         if staged:

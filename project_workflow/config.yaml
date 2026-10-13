@@ -135,6 +135,11 @@ schema:
         issue_title_sha256:
           type: string
           pattern: ^[0-9a-f]{64}$
+        original_title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Original Issue title retained when a command renames the Issue, so its submission can be replayed.
         edits:
           type: array
           items:

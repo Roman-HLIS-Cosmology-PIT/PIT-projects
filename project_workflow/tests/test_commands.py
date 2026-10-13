@@ -41,16 +41,81 @@ class CommandTests(unittest.TestCase):
         return validate_bot_snapshot(base,head,self.api.reader(base),self.api.reader(head),self.api.pr,self.api.issue,self.ctx,
             organization_member=True,is_sc=False,api=self.api,teams=self.teams)
 
-    def test_title_updates_summary_pr_and_yaml_without_issue_title_change(self):
+    def test_title_updates_issue_summary_pr_and_yaml(self):
         title=self.api.issue['title']
         result,c=self.send('/edit title New project title')
         self.assertEqual(result,'edited')
         self.assertEqual(self.record()['name'],'New project title')
-        self.assertEqual(self.api.issue['title'],title)
+        self.assertEqual(self.api.issue['title'],'New project title')
+        self.assertEqual(self.record()['submission']['original_title'],title)
         self.assertIn('New project title',self.api.issue['body'])
         self.assertEqual(self.api.pr['title'],'New project: New project title')
         self.assertEqual(self.validate(),self.record())
         self.assertEqual(self.record()['submission']['submitted_at'],'2026-10-11T06:00:00Z')
+
+    def test_repeated_title_changes_and_later_commands_preserve_submission(self):
+        original=deepcopy(self.record()['submission'])
+        self.assertEqual(self.send('/edit title First title')[0],'edited')
+        self.assertEqual(self.send('/edit title Second title')[0],'edited')
+        self.assertEqual(self.send('/edit slack #project-channel')[0],'edited')
+        self.assertEqual(self.send('/description')[0],'description')
+        self.assertEqual(self.api.issue['title'],'Second title')
+        self.assertEqual(self.api.pr['title'],'New project: Second title')
+        for key,value in original.items():self.assertEqual(self.record()['submission'][key],value)
+        self.assertEqual(self.validate(),self.record())
+
+    def test_title_sync_interruption_after_issue_rename_recovers(self):
+        request=self.api.request
+        def interrupted(method,endpoint,payload=None):
+            if method=='PATCH' and endpoint==f"pulls/{self.api.pr['number']}":raise OSError('PR update interrupted')
+            return request(method,endpoint,payload)
+        self.api.request=interrupted
+        with patch.object(commands.time,'sleep'):
+            result,c=self.send('/edit title Renamed before interruption')
+        self.assertEqual(result,'incomplete')
+        self.assertEqual(self.api.issue['title'],'Renamed before interruption')
+        self.api.request=request
+        self.assertEqual(commands.process(self.api,self.teams,12,c),'replayed')
+        self.assertEqual(len(self.record()['submission']['edits']),1)
+        self.assertEqual(self.validate(),self.record())
+
+    def test_external_issue_title_change_after_command_is_rejected(self):
+        self.send('/edit title Authorized title')
+        self.api.issue['title']='Unrelated manual title'
+        self.assertEqual(self.send('/edit slack #channel')[0],'rejected')
+        with self.assertRaises(Invalid):self.validate()
+
+    def test_remove_people_requires_username_and_preserves_names_with_spaces(self):
+        self.send('/edit add lead name=Jane Smith username=janesmith')
+        self.assertEqual(self.send('/edit remove lead username=Jane Smith')[0],'rejected')
+        self.assertIn('GitHub username, not the person’s name',self.api.comments[-1]['body'])
+        self.assertEqual(self.send('/edit remove lead username=JANESMITH')[0],'edited')
+        self.send('/edit add contributor name=Jane Smith username=janesmith')
+        self.assertEqual(self.send('/edit remove contributor username=Jane Smith')[0],'rejected')
+        self.assertEqual(self.send('/edit remove contributor username=janesmith')[0],'edited')
+        self.assertEqual(self.validate(),self.record())
+
+    def test_command_confirmations_omit_help_effect_even_on_retry(self):
+        result,c=self.send('/edit slack #project-channel')
+        self.assertEqual(result,'edited')
+        reply=next(row for row in self.api.comments if row['body'].startswith(f"<!-- pit-project-command:{c['id']} -->"))
+        self.assertIn('**Edit slack confirmed.**',reply['body'])
+        self.assertNotIn(commands.SPECS['edit slack'][1],reply['body'])
+        self.assertEqual(commands.process(self.api,self.teams,12,c),'replayed')
+        reply=next(row for row in self.api.comments if row['body'].startswith(f"<!-- pit-project-command:{c['id']} -->"))
+        self.assertIn('**Edit slack confirmed.**',reply['body'])
+        self.assertNotIn(commands.SPECS['edit slack'][1],reply['body'])
+
+    def test_old_recorded_deliverable_spelling_still_replays_without_appearing_in_help(self):
+        self.assertEqual(self.send('/edit deliverable SCM-1 SCM-2')[0],'edited')
+        self.assertEqual(self.send('/edit deliverables SCM-2')[0],'edited')
+        help_body=commands.help_text()
+        self.assertIn('/edit deliverables SCM-1 SCM-2 ...',help_body)
+        self.assertNotIn('/edit deliverable ',help_body)
+        self.assertNotIn('[SCM CPIP]',help_body)
+        self.assertNotIn('Use catalogue IDs; their groups must already be selected.',help_body)
+        self.assertIn('name=Jane Smith username=janesmith',help_body)
+        self.assertEqual(self.validate(),self.record())
 
     def test_description_keeps_markdown_slashes_and_command_like_lines(self):
         text='  ## Approach\nhttps://example.org/a/b?x=1\n```python\n/edit title literal content\n```\n/help\n'
@@ -60,14 +125,14 @@ class CommandTests(unittest.TestCase):
 
     def test_deliverables_replace_all_and_preserve_empty_groups(self):
         self.send('/edit working-group SCM CPIP')
-        result,_=self.send('/edit deliverable SCM-2 SCM-2 CPI-1')
+        result,_=self.send('/edit deliverables SCM-2 SCM-2 CPI-1')
         self.assertEqual(result,'edited')
         self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-2']},{'code':'CPIP','deliverable_ids':['CPI-1']}])
         self.assertEqual(self.validate(),self.record())
 
     def test_invalid_edit_is_atomic_and_does_not_change_status(self):
         before=deepcopy(self.record());head=self.api.pr['head']['sha'];body=self.api.issue['body'];statuses=len(self.api.statuses)
-        result,_=self.send('/edit deliverable SCM-2 CPI-1')
+        result,_=self.send('/edit deliverables SCM-2 CPI-1')
         self.assertEqual(result,'rejected');self.assertEqual(self.record(),before)
         self.assertEqual(self.api.pr['head']['sha'],head);self.assertEqual(self.api.issue['body'],body)
         self.assertEqual(len(self.api.statuses),statuses);self.assertEqual(self.api.issue['state'],'open')
@@ -95,10 +160,10 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.send('/edit title Not allowed','carol',789)[0],'rejected')
 
     def test_contributor_add_unquoted_and_quoted_names_and_remove(self):
-        self.assertEqual(self.send('/edit add contributor name=Axel P username=aguiit')[0],'edited')
-        self.assertEqual(self.record()['contributors'][-1]['name'],'Axel P')
+        self.assertEqual(self.send('/edit add contributor name=Jane Smith username=janesmith')[0],'edited')
+        self.assertEqual(self.record()['contributors'][-1]['name'],'Jane Smith')
         self.assertEqual(self.send('/edit add contributor name="Jane Smith" username=jane')[0],'edited')
-        self.assertEqual(self.send('/edit remove contributor username=aguiit')[0],'edited')
+        self.assertEqual(self.send('/edit remove contributor username=janesmith')[0],'edited')
         self.assertEqual([p['github_username'] for p in self.record()['contributors']],['bob','jane'])
         self.assertEqual(self.validate(),self.record())
 
@@ -165,10 +230,10 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(Invalid):self.validate()
 
     def test_working_group_removal_and_clear_commands(self):
-        self.send('/edit working-group SCM CPIP');self.send('/edit deliverable SCM-1 CPI-1')
+        self.send('/edit working-group SCM CPIP');self.send('/edit deliverables SCM-1 CPI-1')
         self.assertEqual(self.send('/edit working-group SCM')[0],'edited')
         self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-1']}])
-        self.assertEqual(self.send('/edit remove deliverable')[0],'edited')
+        self.assertEqual(self.send('/edit remove deliverables')[0],'edited')
         self.send('/edit github https://github.com/example/repository')
         self.assertEqual(self.send('/edit remove github')[0],'edited')
         self.send('/edit slack #x');self.assertEqual(self.send('/edit remove slack')[0],'edited')
