@@ -1,0 +1,102 @@
+schema_version: 1
+project_id: P000023
+name: New project title
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors: []
+related_links:
+- https://github.com/aguinot/metacoadd
+- https://example.org/b
+github_url: https://github.com/OWNER/REPOSITORY
+slack_channel: '#project-channel'
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-1
+  - SCM-2
+- code: CPIP
+  deliverable_ids: []
+summary: Your complete Markdown description
+phd_thesis: true
+submission:
+  issue_number: 23
+  submitted_by: aguinot
+  submitted_at: '2026-10-13T06:12:15Z'
+  issue_title_sha256: fecbeddb7197fcbb42af9ec5af087e7c324258017a56a5db47cde9c3a8810030
+  issue_body_sha256: 5c79aed2af348c7eb17fa7f8cf5343d4184f66388aca07333c082eb44472b457
+  edits:
+  - comment_id: 6139500556
+    author_id: 39480528
+    body_sha256: 0e14687e26fcd74f30f725f4c31a86e1d688d4fbcf4b0b5dd6b980d00efa785d
+  - comment_id: 6139554561
+    author_id: 39480528
+    body_sha256: aeae87c40805c5e6bc54ef0cb60ef3eaf05e63fc9b8a0b433f2967d85bb464d9
+  - comment_id: 6139880945
+    author_id: 39480528
+    body_sha256: f4ef6ec6408a2d91b5f8f5258500b1ea0ba519033705ff692af284ac6a0feb23
+  - comment_id: 6139913426
+    author_id: 39480528
+    body_sha256: 50f966c66f5fa62e281ce54c8b460324f39d366517dd416a6729c7bf735f3d7d
+  - comment_id: 6140012629
+    author_id: 39480528
+    body_sha256: b171d7d9145cbcedb92bfa20f51cf4e4aefb7a5d376030cfb4eb82d3b77909f9
+  - comment_id: 6140052619
+    author_id: 39480528
+    body_sha256: c255682945fcf3ea26b35a44e81b12369e63794f96901d3d2ad05aa5bd439b1b
+  - comment_id: 6140125361
+    author_id: 39480528
+    body_sha256: b69764203734e81840f635a7a922f057bad2c2d61d1323c97b6530aab256c0e9
+  - comment_id: 6140180410
+    author_id: 39480528
+    body_sha256: 7c9b1f1ccdda943063a1bf0d3e1fcc02b247aa80e65fccae6eb91b8d7527c88d
+  - comment_id: 6140215476
+    author_id: 39480528
+    body_sha256: 435085259369312dd059bb680b52654f208e22880103fab8e6700628bf214ceb
+  - comment_id: 6140231561
+    author_id: 39480528
+    body_sha256: d70b5288ea731d50bec0a5b564b3cf8148f1eb9146c53b73b877fc43570d00bd
+  - comment_id: 6140255012
+    author_id: 39480528
+    body_sha256: 7f57536e3519c9c350e8e6cec2f114dde391f6d4bcf2fc557abb0cef333b82d4
+  - comment_id: 6140274033
+    author_id: 39480528
+    body_sha256: 5206afe4a7427a6a9c9fa9de27e57196df3936b2e65a32e671fee5e5c1d0de83
+  - comment_id: 6140295292
+    author_id: 39480528
+    body_sha256: 1ca23856fc16577e67d5d10e4a5ae5a15d6c4249f23ed8853bc4cd5bfee8e191
+  - comment_id: 6140321281
+    author_id: 39480528
+    body_sha256: dbf662ba312ce45e06bfbb62198adeee5d6f2982b50dbf15ba45e28d77770ff3
+  - comment_id: 6140343018
+    author_id: 39480528
+    body_sha256: d787dd3479ee1e45aecc0fbcc9866084fc46a74cf905cd1b167cef9bfa6d105c
+  - comment_id: 6140454848
+    author_id: 39480528
+    body_sha256: d70b5288ea731d50bec0a5b564b3cf8148f1eb9146c53b73b877fc43570d00bd
+  - comment_id: 6140456800
+    author_id: 39480528
+    body_sha256: 1ca23856fc16577e67d5d10e4a5ae5a15d6c4249f23ed8853bc4cd5bfee8e191
+  - comment_id: 6140493109
+    author_id: 39480528
+    body_sha256: d70b5288ea731d50bec0a5b564b3cf8148f1eb9146c53b73b877fc43570d00bd
+  - comment_id: 6140494112
+    author_id: 39480528
+    body_sha256: 7f57536e3519c9c350e8e6cec2f114dde391f6d4bcf2fc557abb0cef333b82d4
+  - comment_id: 6140666171
+    author_id: 39480528
+    body_sha256: 73edcc5cdcb53cabc77805dc950f6bcbefa88a7470c53a44f18dc37bb79ea796
+  - comment_id: 6140713397
+    author_id: 39480528
+    body_sha256: 331e862adf0a8fd1cb72f1d8475c80a168c52ec592a1f8765f9d073d58b832a7
+  - comment_id: 6140816488
+    author_id: 39480528
+    body_sha256: ed5435199c9feb464e0ed9b3cc01aaecbb75bb48fcd98cf1061786903caaa6b1
+  - comment_id: 6140838099
+    author_id: 39480528
+    body_sha256: aea077e9f4ca6ea94305823b4b0539d8805173096f0e07f191a5c5d35715d639
+  - comment_id: 6141070802
+    author_id: 39480528
+    body_sha256: 7ae67579e5fe5ff377f364a577fb391d31324f18202080f9102f787c4cad247d
