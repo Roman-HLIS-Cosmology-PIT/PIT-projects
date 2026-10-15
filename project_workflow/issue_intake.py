@@ -188,7 +188,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         api.status(pr['head']['sha'],'pending','Checking the current submission')
     try:
         if not labelled(issue):
-            raise Invalid('Restore the new-project label before this proposal can be reviewed')
+            raise Invalid('Restore the original project submission label before this proposal can be reviewed')
         if teams is None:
             raise Invalid('SC must configure the SC_TEAM_READ_TOKEN Actions secret')
         base_sha = api.get('git/ref/heads/main')['object']['sha']
@@ -280,7 +280,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if current_pr and current_pr['state'] == 'open':
             api.status(current_pr['head']['sha'],'failure','Submission validation failed; see the Issue')
         set_invalid(api,issue,True)
-        url = f'https://github.com/{api.repo}/issues/new?template=new-project.yml'
+        template = 'new-cpp-project.yml' if any(x['name'] == 'new-cpp-project' for x in issue.get('labels',[])) else 'new-project.yml'
+        url = f'https://github.com/{api.repo}/issues/new?template={template}'
         message = '**Your project could not be submitted. This Issue has been closed.**\n\n' + '\n'.join('- ' + safe_text(line) for line in str(exc).splitlines())
         message += f'\n\nAddress the problems above, then [submit a new project](<{url}>).'
         closed = api.request('PATCH',f'issues/{issue_number}',{'state':'closed','state_reason':'not_planned'})

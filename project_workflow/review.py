@@ -62,22 +62,28 @@ def summary_body(record, ctx):
     """Readable validated submission; raw answers remain on the original Issue."""
     def person(name, username):
         return safe_text(name) + ' · ' + profile(username)
-    rows = ['**Project title**: ' + safe_text(record['name']),
-            ('**Project lead**: ' + person(record['leads'][0]['name'],record['leads'][0]['github_username'])
-             if len(record['leads']) == 1 else '**Project leads**:\n\n' + '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['leads'])),
-            '**Project kind**: EP — Enhancing Project', '**Working groups and deliverables**:']
+    rows = ['**Project title**: ' + safe_text(record['name'])]
+    if record['kind'] == 'EP':
+        rows.append(('**Project lead**: ' + person(record['leads'][0]['name'],record['leads'][0]['github_username'])
+             if len(record['leads']) == 1 else '**Project leads**:\n\n' + '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['leads'])))
+    kind = record['kind']
+    rows.extend(['**Project kind**: ' + safe_text(kind + ' — ' + ctx.policy['kinds'][kind]['description']),
+                 '**Working groups and deliverables**:'])
     for group in record['working_groups']:
         code = group['code']
         catalogue = ctx.working_groups[code]
         titles = {d['id']:d['title'] for d in catalogue['deliverables']}
         rows.append('**' + safe_text(code + ' — ' + catalogue['description']) + '**')
         rows.append('\n'.join('- ' + safe_text(i + ' — ' + titles[i]) for i in group['deliverable_ids']) or 'No deliverables selected.')
-    rows.extend(['**Part of a PhD thesis**: ' + str(record['phd_thesis']),
-                 '**Slack channel**: ' + safe_text(record.get('slack_channel') or 'Not provided'),
+    if record['kind'] == 'EP':
+        rows.append('**Part of a PhD thesis**: ' + str(record['phd_thesis']))
+    rows.extend(['**Slack channel**: ' + safe_text(record.get('slack_channel') or 'Not provided'),
                  '**Main GitHub repository**: ' + (link(record['github_url']) if record.get('github_url') else 'Not provided'),
-                 '**Project description**:',safe_text(record['summary'],markdown=True), '**Contributors**:',
-                 '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['contributors']) or 'None listed',
-                 '**Related links**:', '\n'.join('- ' + link(url) for url in record.get('related_links',[])) or 'None provided'])
+                 '**Project description**:',safe_text(record['summary'],markdown=True)])
+    if record['kind'] == 'EP':
+        rows.extend(['**Contributors**:',
+                     '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['contributors']) or 'None listed'])
+    rows.extend(['**Related links**:', '\n'.join('- ' + link(url) for url in record.get('related_links',[])) or 'None provided'])
     return '\n\n'.join(rows) + '\n'
 
 

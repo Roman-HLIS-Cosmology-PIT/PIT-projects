@@ -1,0 +1,114 @@
+# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.
+name: Declare a CPP (SC only)
+description: Declare an unassigned Critical Path Project for review. Steering Committee members only.
+labels:
+- new-cpp-project
+body:
+- type: markdown
+  attributes:
+    value: Use **Add a title** above for your project title. This form declares a CPP (Critical Path Project). Only
+      Steering Committee members may submit or edit this declaration. Leads, contributors and PhD information are
+      not collected here. Submit only information suitable for all repository readers.
+- type: dropdown
+  id: working_groups
+  attributes:
+    label: Working groups
+    description: Select at least one working group. You may select several.
+    multiple: true
+    options:
+    - CAS — Catalogue And Statistics
+    - CPIP — Cosmological Parameter Inference Pipeline
+    - SCM — Shape and Color Measurement
+  validations:
+    required: true
+- type: markdown
+  attributes:
+    value: '## Deliverables
+
+
+      Deliverables selected for an unselected working group will be ignored.'
+- type: dropdown
+  id: deliverables_CAS
+  attributes:
+    label: CAS deliverables
+    description: Optional. Select any deliverables for CAS.
+    multiple: true
+    options:
+    - CAS-1 — Photometric redshift inference
+    - CAS-2 — Galaxy sample preparation and calibration
+    - CAS-3 — Galaxy cluster identification and cross-correlation
+    - CAS-4 — Catalog simulations
+    - CAS-5 — 2-point statistics measurement
+    - CAS-6 — Observational systematics parametrizatin and priors
+  validations:
+    required: false
+- type: dropdown
+  id: deliverables_CPIP
+  attributes:
+    label: CPIP deliverables
+    description: Optional. Select any deliverables for CPIP.
+    multiple: true
+    options:
+    - CPI-1 — 3x2pt and cluster cosmology
+    - CPI-2 — Baryon suppression and nonlinear power spectrum modeling
+    - CPI-3 — Intrinsic alignements modeling
+    - CPI-4 — Galaxy bias modeling
+    - CPI-5 — Cluster systematics
+    - CPI-6 — Data challenges and covariance
+    - CPI-7 — Mass mapping and high-order statistics
+    - CPI-8 — Forecasting HLIS performance
+  validations:
+    required: false
+- type: dropdown
+  id: deliverables_SCM
+  attributes:
+    label: SCM deliverables
+    description: Optional. Select any deliverables for SCM.
+    multiple: true
+    options:
+    - SCM-1 — Calibration
+    - SCM-2 — Image pre-processing
+    - SCM-3 — Galaxy identification and shape measurement
+    - SCM-4 — Photometry and color measurement
+    - SCM-5 — Image simulations
+  validations:
+    required: false
+- type: input
+  id: slack_channel
+  attributes:
+    label: Slack channel
+    description: 'Optional existing channel name, such as #scm-shapes. Can be added later.'
+  validations:
+    required: false
+- type: textarea
+  id: summary
+  attributes:
+    label: Description
+    description: Describe the goals, approach and expected results. Markdown is supported.
+  validations:
+    required: true
+- type: input
+  id: github_url
+  attributes:
+    label: Main GitHub repository
+    description: Optional https://github.com/OWNER/REPOSITORY URL. Can be added later.
+  validations:
+    required: false
+- type: textarea
+  id: related_links
+  attributes:
+    label: Related links
+    description: Optional. One HTTPS URL per line. Do not include credentials or secret sharing tokens.
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '---
+
+
+      **After submitting your project, stay on the Issue page** until a new message appears with instructions for
+      the next steps.
+
+      You may need to refresh the page; this can take a few minutes.
+
+      '

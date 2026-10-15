@@ -1,4 +1,4 @@
-"""Generate one EP submission form from config and working-group catalogues."""
+"""Generate EP submission and CPP declaration forms from shared sources."""
 from copy import deepcopy
 from pathlib import Path
 import argparse
@@ -9,6 +9,10 @@ import yaml
 from project_workflow.project_registry import Invalid, load_local_context, parse_yaml
 
 LABEL = 'new-project'
+FORM_LABELS = {'EP': LABEL, 'CPP': 'new-cpp-project'}
+FORM_PATHS = {'EP': '.github/ISSUE_TEMPLATE/new-project.yml',
+              'CPP': '.github/ISSUE_TEMPLATE/new-cpp-project.yml'}
+CPP_OMITTED_FIELDS = {'lead', 'lead_github_username', 'phd_thesis'}
 BRANCH_PREFIX = 'project-submissions/issue-'
 BOT_LOGIN = 'github-actions[bot]'
 BOT_ID = 41898282
@@ -40,10 +44,28 @@ def deliverable_options(ctx, code):
     return options
 
 
-def form(ctx):
+def form(ctx, kind='EP'):
+    if kind not in FORM_LABELS:
+        raise Invalid('Unsupported submission kind')
     spec = deepcopy(ctx.form_source)
+    variants = spec.pop('variants', {})
+    if kind != 'EP':
+        variant = deepcopy(variants.get(kind, {}))
+        if set(variant) != {'name', 'description', 'labels', 'introduction'}:
+            raise Invalid('CPP form variant requires name, description, labels and introduction')
+        introduction = variant.pop('introduction')
+        if not spec['body'] or spec['body'][0].get('type') != 'markdown':
+            raise Invalid('Shared form must start with its introduction')
+        spec['body'][0]['attributes']['value'] = introduction
+        spec.update(variant)
+    if spec.get('labels') != [FORM_LABELS[kind]]:
+        raise Invalid('Each form must apply only its own submission label')
     expanded = []
     for item in spec['body']:
+        ep_only = item.pop('ep_only', False)
+        identifier = item.get('id', '')
+        if kind == 'CPP' and (ep_only or identifier in CPP_OMITTED_FIELDS or CONTRIBUTOR_FIELD.fullmatch(identifier)):
+            continue
         source = item.pop('options_from', None)
         if item.get('type') == 'working_group_sections':
             for code, group in sorted(ctx.working_groups.items()):
@@ -65,9 +87,11 @@ def form(ctx):
     spec['body'] = expanded
     fields = {x['id']: x for x in expanded if x.get('type') != 'markdown'}
     expected = CORE_FIELDS | {deliverable_field(c) for c in ctx.working_groups if ctx.deliverables[c]}
+    if kind == 'CPP':
+        expected -= CPP_OMITTED_FIELDS
     extras = set(fields) - expected
-    if not expected <= set(fields) or any(not CONTRIBUTOR_FIELD.fullmatch(k) for k in extras):
-        raise Invalid('Form fields must match the EP submission handler')
+    if not expected <= set(fields) or (extras if kind == 'CPP' else any(not CONTRIBUTOR_FIELD.fullmatch(k) for k in extras)):
+        raise Invalid('Form fields must match the submission handler')
     slots = {CONTRIBUTOR_FIELD.fullmatch(k)[1] for k in extras}
     if any({f'contributor_{i}_name',f'contributor_{i}_github_username'} - set(fields) for i in slots):
         raise Invalid('Each contributor requires paired name and username fields')
@@ -77,25 +101,25 @@ def form(ctx):
     return spec
 
 
-def current_labels(ctx):
-    return {x['id']:x['attributes']['label'] for x in form(ctx)['body'] if x['type'] != 'markdown'}
+def current_labels(ctx, kind='EP'):
+    return {x['id']:x['attributes']['label'] for x in form(ctx,kind)['body'] if x['type'] != 'markdown'}
 
 
-def label_keys(ctx):
-    return {label:key for key,label in current_labels(ctx).items()}
+def label_keys(ctx, kind='EP'):
+    return {label:key for key,label in current_labels(ctx,kind).items()}
 
 
-def generated_text(ctx):
-    return '# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.\n' + yaml.safe_dump(form(ctx),sort_keys=False,allow_unicode=True,width=110)
+def generated_text(ctx, kind='EP'):
+    return '# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.\n' + yaml.safe_dump(form(ctx,kind),sort_keys=False,allow_unicode=True,width=110)
 
 
-def validate_form(text, ctx):
+def validate_form(text, ctx, kind='EP'):
     """Check parser labels, controls and catalogue choices, not presentation wording."""
     spec = parse_yaml(text)
-    if not isinstance(spec,dict) or LABEL not in spec.get('labels',[]):
-        raise Invalid('Submission form must apply the new-project label')
+    if not isinstance(spec,dict) or spec.get('labels') != [FORM_LABELS[kind]]:
+        raise Invalid('Submission form must apply only its own submission label')
     fields = [x for x in spec.get('body',[]) if x.get('type') != 'markdown']
-    expected = {x['id']:x for x in form(ctx)['body'] if x['type'] != 'markdown'}
+    expected = {x['id']:x for x in form(ctx,kind)['body'] if x['type'] != 'markdown'}
     if len(fields) != len(expected) or {x.get('id') for x in fields} != set(expected):
         raise Invalid('Submission form fields must match the handler')
     for x in fields:
@@ -116,14 +140,15 @@ def main():
     args = parser.parse_args()
     try:
         ctx = load_local_context(args.root)
-        path = args.root / '.github/ISSUE_TEMPLATE/new-project.yml'
-        if args.check:
-            validate_form(path.read_text(),ctx)
-            print('Submission form matches its parser and catalogues.')
-        else:
-            path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_text(generated_text(ctx),encoding='utf-8')
-            print('Generated New Project form.')
+        for kind, relative in FORM_PATHS.items():
+            path = args.root / relative
+            if args.check:
+                validate_form(path.read_text(),ctx,kind)
+                print(kind + ' form matches its parser and catalogues.')
+            else:
+                path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_text(generated_text(ctx,kind),encoding='utf-8')
+                print('Generated ' + kind + ' form.')
         return 0
     except (Invalid,OSError,ValueError,KeyError,TypeError) as exc:
         print(str(exc),file=sys.stderr)

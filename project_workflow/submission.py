@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from project_workflow.issue_form import (LABEL, BRANCH_PREFIX, BOT_LOGIN, BOT_ID,
+from project_workflow.issue_form import (FORM_LABELS, BRANCH_PREFIX, BOT_LOGIN, BOT_ID,
     CONTRIBUTOR_FIELD, option_value, current_labels, label_keys, deliverable_field, form)
 from project_workflow.project_registry import Invalid, USERNAME, authorize_change, utc_timestamp, validate_record
 
@@ -44,20 +44,32 @@ def is_submission_bot(user):
     return user.get("login") == BOT_LOGIN and user.get("id") == BOT_ID and user.get("type") == "Bot"
 
 
+def submission_labels(issue):
+    return tuple(sorted({x["name"] for x in issue.get("labels", [])} & set(FORM_LABELS.values())))
+
+
 def labelled(issue):
-    return LABEL in {x["name"] for x in issue.get("labels", [])}
+    return bool(submission_labels(issue))
+
+
+def submission_kind(issue):
+    labels = submission_labels(issue)
+    if len(labels) != 1:
+        raise Invalid('Keep exactly one submission label: new-project for EP or new-cpp-project for CPP')
+    return next(kind for kind, label in FORM_LABELS.items() if label == labels[0])
 
 
 def issue_version(issue):
     return (issue.get("title") or "", issue.get("body") or "", issue["user"],
-            issue.get("state"), labelled(issue), issue.get("created_at"))
+            issue.get("state"), submission_labels(issue), issue.get("created_at"))
 
 
-def answers(body, ctx):
+def answers(body, ctx, kind='EP'):
     if not isinstance(body, str) or len(body.encode("utf-8")) > 65536:
         raise Invalid("Issue description is missing or too long (maximum 64 KiB)")
-    labels = current_labels(ctx)
-    reverse = label_keys(ctx)
+    labels = current_labels(ctx,kind)
+    reverse = label_keys(ctx,kind)
+    excluded = set(label_keys(ctx)) - set(reverse) if kind == 'CPP' else set()
     found, current, fence = {}, None, None
     for line in body.replace("\r\n", "\n").splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -68,6 +80,8 @@ def answers(body, ctx):
             elif token[0] == fence[0] and len(token) >= fence[1] and not marker[2].strip():
                 fence = None
         heading = re.fullmatch(r"### (.+?)\s*", line) if fence is None and not marker else None
+        if heading and heading[1] in excluded:
+            raise Invalid('Lead, contributor and PhD fields are not available in CPP declarations')
         if heading and heading[1] in reverse:
             current = reverse[heading[1]]
             if current in found:
@@ -77,7 +91,7 @@ def answers(body, ctx):
             found[current].append(line)
         elif line.strip():
             raise Invalid("Keep the original form headings; unexpected text before the first field")
-    required = {item['id'] for item in form(ctx)['body']
+    required = {item['id'] for item in form(ctx,kind)['body']
                 if item.get('validations',{}).get('required')}
     missing = required - set(found)
     if missing:
@@ -119,7 +133,7 @@ def submission_body(issue):
 
 
 def resolved_values(issue, ctx):
-    values = answers(submission_body(issue), ctx)
+    values = answers(submission_body(issue), ctx, submission_kind(issue))
     values['name'] = issue.get('title') or ''
     return values
 
@@ -236,23 +250,27 @@ def optional_fields(values, ctx, *, codes=None):
 
 def proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
     if issue.get("pull_request") or issue.get("state") != "open" or not labelled(issue):
-        raise Invalid("Submission Issue must be open and have the new-project label")
+        raise Invalid("Submission Issue must be open and have a project submission label")
     if not organization_member:
         raise Invalid("The Issue author must be an active organization member")
+    kind = submission_kind(issue)
+    if kind == 'CPP' and not is_sc:
+        raise Invalid('Only SC members can declare a CPP')
     actor = issue["user"]["login"]
     values = resolved_values(issue, ctx)
-    labels = {"name":"Project title", **current_labels(ctx)}
+    labels = {"name":"Project title", **current_labels(ctx,kind)}
     errors, bad_fields = [], set()
     def fail(message, *fields):
         errors.append(message)
         bad_fields.update(fields)
-    for key in ("name", "lead", "lead_github_username", "summary", "phd_thesis"):
+    required = ('name', 'summary') + (('lead', 'lead_github_username', 'phd_thesis') if kind == 'EP' else ())
+    for key in required:
         values[key] = optional(values[key])
         if not values[key]:
             fail(f"{labels[key]}: an answer is required", key)
     if any(c in values["name"] for c in "\r\n"):
         fail("Project title must be a single line", "name")
-    lead = optional(values['lead_github_username'])
+    lead = optional(values.get('lead_github_username',''))
     if lead and (len(lead) > 39 or not USERNAME.fullmatch(lead)):
         fail('Lead: enter a GitHub username without @ or a profile URL', 'lead_github_username')
     if not is_sc and lead.lower() != actor.lower():
@@ -267,17 +285,17 @@ def proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
     # Values in unselected groups are intentionally ignored.
     cleaned, _ = optional_fields(values,ctx,codes=codes)
     booleans = {'True':True,'False':False}
-    if values['phd_thesis'] not in booleans:
+    if kind == 'EP' and values['phd_thesis'] not in booleans:
         fail("Select True or False for the PhD thesis question", 'phd_thesis')
     if errors:
         raise Invalid("\n".join(dict.fromkeys(errors)),fields=bad_fields)
     record = {
         'schema_version':ctx.schema['properties']['schema_version']['const'],
-        'project_id':project_id(issue['number']), 'name':values['name'], 'kind':'EP',
+        'project_id':project_id(issue['number']), 'name':values['name'], 'kind':kind,
         'status':ctx.schema['properties']['status'].get('default','active'),
-        'leads':[{'name':values['lead'],'github_username':lead}], **cleaned,
+        'leads':[{'name':values['lead'],'github_username':lead}] if kind == 'EP' else [], **cleaned,
         'summary':values['summary'],
-        'phd_thesis':booleans[values['phd_thesis']],
+        **({'phd_thesis':booleans[values['phd_thesis']]} if kind == 'EP' else {}),
         'submission':{'issue_number':issue['number'], 'submitted_by':actor,
             'submitted_at':utc_timestamp(issue.get('created_at')),
             'issue_title_sha256':hashlib.sha256(issue['title'].encode('utf-8')).hexdigest(),

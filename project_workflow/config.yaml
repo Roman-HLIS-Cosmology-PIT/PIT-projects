@@ -94,7 +94,7 @@ schema:
       description: Optional main GitHub repository; omit or set null if unknown.
     phd_thesis:
       type: boolean
-      description: Whether this project is part of the lead’s PhD thesis; required for Issue submissions.
+      description: Whether this project is part of the lead’s PhD thesis; required for EP Issue submissions.
     slack_channel:
       anyOf:
       - type: string
@@ -194,6 +194,15 @@ form:
   description: Propose a project for review.
   labels:
   - new-project
+  variants:
+    CPP:
+      name: Declare a CPP (SC only)
+      description: Declare an unassigned Critical Path Project for review. Steering Committee members only.
+      labels:
+      - new-cpp-project
+      introduction: Use **Add a title** above for your project title. This form declares a CPP (Critical Path
+        Project). Only Steering Committee members may submit or edit this declaration. Leads, contributors
+        and PhD information are not collected here. Submit only information suitable for all repository readers.
   body:
   - type: markdown
     attributes:
@@ -272,6 +281,7 @@ form:
     validations:
       required: false
   - type: markdown
+    ep_only: true
     attributes:
       value: '## Contributors
 
@@ -279,6 +289,7 @@ form:
         List up to five contributors, excluding the project lead. Leave unused contributor sections blank. Additional
         contributors can be added to the project later.'
   - type: markdown
+    ep_only: true
     attributes:
       value: '### Contributor 1 — Optional'
   - type: input
@@ -296,6 +307,7 @@ form:
     validations:
       required: false
   - type: markdown
+    ep_only: true
     attributes:
       value: '### Contributor 2 — Optional'
   - type: input
@@ -313,6 +325,7 @@ form:
     validations:
       required: false
   - type: markdown
+    ep_only: true
     attributes:
       value: '### Contributor 3 — Optional'
   - type: input
@@ -330,6 +343,7 @@ form:
     validations:
       required: false
   - type: markdown
+    ep_only: true
     attributes:
       value: '### Contributor 4 — Optional'
   - type: input
@@ -347,6 +361,7 @@ form:
     validations:
       required: false
   - type: markdown
+    ep_only: true
     attributes:
       value: '### Contributor 5 — Optional'
   - type: input

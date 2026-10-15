@@ -178,10 +178,10 @@ def validate_snapshot(base_tree, head_tree, base_read, head_read, author, *, sc_
     if not sc_lookup(*base_ctx.sc_team, author):
         raise Invalid("Only direct SC-authored PRs or verified Issue submissions are accepted")
     proposed_ctx = load_context(head_read, paths=head_tree)
-    form_path = ".github/ISSUE_TEMPLATE/new-project.yml"
-    if form_path in base_tree or form_path in head_tree:
-        from project_workflow.issue_form import validate_form
-        validate_form(head_read(form_path), proposed_ctx)
+    from project_workflow.issue_form import FORM_PATHS, validate_form
+    for kind, form_path in FORM_PATHS.items():
+        if form_path in base_tree or form_path in head_tree:
+            validate_form(head_read(form_path), proposed_ctx, kind)
     from project_workflow.generated_files import validate_outputs
     validate_outputs(head_read, head_tree, proposed_ctx)
     old = records(base_tree, base_read, base_ctx)

@@ -8,7 +8,7 @@ import urllib.error
 
 from project_workflow.project_registry import Invalid, USERNAME, validate_record
 from project_workflow.submission import (number, proposal, submission_body, project_path,
-    issue_version, is_submission_bot, FORMATTED_MARKER, labelled)
+    issue_version, is_submission_bot, FORMATTED_MARKER, labelled, submission_kind)
 from project_workflow.review import formatted_issue_body, safe_text
 
 # Syntax and help live together; adding a command changes this module only.
@@ -34,19 +34,30 @@ SPECS = {
 }
 
 
-def help_text(path=''):
+CPP_UNAVAILABLE_COMMANDS = {'edit phd', 'edit add lead', 'edit remove lead',
+                            'edit add contributor', 'edit remove contributor'}
+
+
+def available(key, kind):
+    return kind != 'CPP' or key not in CPP_UNAVAILABLE_COMMANDS
+
+
+def help_text(path='', kind='EP'):
     prefix = path + ' ' if path else ''
     options = [(key, syntax, effect) for key, (syntax, effect) in SPECS.items()
-               if key == path or key.startswith(prefix)]
+               if (key == path or key.startswith(prefix)) and available(key,kind)]
     if not options:
+        if not available(path,kind):
+            raise Invalid('Lead, contributor and PhD commands are not available in CPP declarations. Use /help.')
         raise Invalid('Unknown help topic. Use /help.')
     rows = ['**Project commands**' + (' — `' + path + '`' if path else ''),
-            'One command per comment. Edits are available while the submission Issue and its PR are open. '
-            'The original submitter, current leads and SC may edit; active organization membership is required.']
+            'One command per comment. Edits are available while the submission Issue and its PR are open. ' +
+            ('Only SC members may edit CPP declarations; live SC and organization membership are required.' if kind == 'CPP' else
+             'The original submitter, current leads and SC may edit; active organization membership is required.')]
     for _, syntax, effect in options:
         rows.append('```text\n' + syntax + '\n```\n' + effect)
-    rows.append('Help works at each level: `/help`, `/edit help`, `/edit add help`, '
-                '`/edit add contributor help`. Deliverable IDs must match the catalogue exactly; use `/deliverables`. '
+    examples = '`/help`, `/edit help`, `/edit add help`, ' + ('`/edit add links help`' if kind == 'CPP' else '`/edit add contributor help`')
+    rows.append('Help works at each level: ' + examples + '. Deliverable IDs must match the catalogue exactly; use `/deliverables`. '
                 'Post a new comment for every command; do not edit or delete an applied command comment.')
     return '\n\n'.join(rows)
 
@@ -139,6 +150,8 @@ def apply(record, command, ctx):
     """Atomic pure transformation; any error leaves the supplied record untouched."""
     key, value = command
     if not key.startswith('edit '): raise Invalid('This is not an edit command.')
+    if not available(key,record['kind']):
+        raise Invalid('Lead, contributor and PhD commands are not available in CPP declarations.')
     candidate = deepcopy(record)
     note = ''
     if key in {'edit title','edit description','edit slack','edit github'}:
@@ -236,6 +249,10 @@ def authorize(record, issue, comment, roles):
     receipt(comment)
     login=comment['user']['login']
     member,sc=roles.get(login)
+    if record['kind'] == 'CPP':
+        if not member or not sc:
+            raise Invalid('Only SC members may edit CPP declarations; active organization membership is required.')
+        return
     original=comment['user']['id']==issue['user']['id']
     lead=login.lower() in {p['github_username'].lower() for p in record['leads']}
     if not member or not (sc or original or lead):
@@ -350,8 +367,11 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         member,_=roles.get(comment['user']['login'])
         if not member:raise Invalid('Commands require active organization membership.')
         key,value=command
+        kind=submission_kind(issue)
+        if stored and stored['kind'] != kind:
+            raise Invalid('Restore the original project submission label; the proposal kind cannot be changed.')
         if key=='help':
-            feedback(api,issue_number,help_text(value),marker=marker)
+            feedback(api,issue_number,help_text(value,kind),marker=marker)
             return 'help'
         if key=='deliverables':
             codes=list(dict.fromkeys(value.split())) or sorted(ctx.working_groups)
@@ -456,6 +476,6 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
             print('Command synchronization failed: '+reason.replace('\n',' ')[:500],file=sys.stderr)
             text='**The edit was recorded, but synchronization could not complete.** Ask SC to run Project workflows on main with operation `submit` and this Issue number. The PR remains blocked until validation passes.'
         else:
-            text='**Command ignored.** '+safe_text(str(exc))+'\n\nUse `/help` or the relevant help command, such as `/edit add contributor help`.'
+            text='**Command ignored.** '+safe_text(str(exc))+'\n\nUse `/help` or `/edit help` to see the available commands.'
         feedback(api,issue_number,text,marker=marker)
         return 'incomplete' if staged else 'rejected'

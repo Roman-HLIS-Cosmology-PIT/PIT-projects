@@ -5,10 +5,10 @@ import argparse
 from pathlib import Path
 import sys
 
-from project_workflow.issue_form import generated_text
+from project_workflow.issue_form import FORM_PATHS, generated_text
 from project_workflow.project_registry import CONFIG_PATH, Invalid, load_local_context, parse_yaml
 
-OUTPUTS = {".github/ISSUE_TEMPLATE/new-project.yml", ".github/CODEOWNERS"}
+OUTPUTS = set(FORM_PATHS.values()) | {".github/CODEOWNERS"}
 
 
 def relevant(path):
@@ -17,7 +17,7 @@ def relevant(path):
 
 def render(ctx):
     return {
-        ".github/ISSUE_TEMPLATE/new-project.yml": generated_text(ctx),
+        **{path: generated_text(ctx,kind) for kind,path in FORM_PATHS.items()},
         ".github/CODEOWNERS": "# Generated from project_workflow/config.yaml; do not edit this output.\n* " + " ".join(ctx.review_owners) + "\n",
     }
 

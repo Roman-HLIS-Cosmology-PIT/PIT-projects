@@ -4,11 +4,13 @@ Project proposals are submitted through a GitHub Issue Form and reviewed through
 
 [Submit a new EP project](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-project.yml)
 
+[Declare a CPP (SC only)](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-cpp-project.yml)
+
 ## Submission and review
 
 1. Use the Issue title as the project title. Enter the required lead name, GitHub username, description and PhD answer. Ordinary members must submit as their own lead; SC members may submit on another person's behalf.
 2. Select one or more working groups in the required multiple-selection dropdown. Each group has its own optional deliverable menu, allowing several selections. A selected group may have no deliverables. Deliverables selected for unselected groups are ignored.
-3. Submit and stay on the Issue page for the automated result. Every form submission is an **EP**. The workflow checks the actual Issue author's live organization membership and required information. Invalid optional contributors, deliverable selections, repository links, related links and Slack entries are removed with an explanation; they do not block the project.
+3. Submit and stay on the Issue page for the automated result. This form always submits an **EP**; CPP declarations use the separate SC form below. The workflow checks the actual Issue author's live organization membership and required information. Invalid optional contributors, deliverable selections, repository links, related links and Slack entries are removed with an explanation; they do not block the project.
 4. A valid submission creates one project YAML file on `project-submissions/issue-<number>` and one PR. The bot reformats the Issue body into a readable summary, links `/help` for edits, and requests review from the configured reviewer, currently **aguinot**. Retrying an unchanged submission reuses the same PR and branch.
 5. Merging the PR accepts the project and closes the Issue through `Closes #<number>`. The bot posts an acceptance message on that Issue. Enable GitHub's **Automatically delete head branches** repository setting to remove merged branches.
 
@@ -18,7 +20,7 @@ After successful submission the bot says **Your project has been submitted**, li
 
 Optional cleanup keeps the first valid contributor for each username, excludes the lead from contributors, removes incomplete/malformed/overlong contributors, removes unknown/duplicate deliverables within selected groups, removes malformed main repository URLs, removes invalid related links, keeps the first occurrence of duplicate links and the first 100 valid links, and removes an invalid/overlong Slack entry. A correctly formatted repository URL that cannot be verified is kept with a warning because it may be private. Empty optional fields remain absent. The original answers stay in the hidden Issue source so retries and independent policy checks reproduce the same cleaned record.
 
-If required information or submission integrity fails validation, the bot adds `invalid`, closes the Issue automatically, explains the failure and links the normal New Project form. Any associated unmerged PR is closed and its verified branch removed through the existing cancellation cleanup. No duplicate cancellation comment is added. Temporary API or workflow failures remain retryable; they are reported separately from validation failures.
+If required information or submission integrity fails validation, the bot adds `invalid`, closes the Issue automatically, explains the failure and links the corresponding EP or CPP form. Any associated unmerged PR is closed and its verified branch removed through the existing cancellation cleanup. No duplicate cancellation comment is added. Temporary API or workflow failures remain retryable; they are reported separately from validation failures.
 
 There is no replacement form or replacement-Issue chain. Use comment commands for proposal edits; do not manually edit the Issue summary, hidden source, or an already-applied command comment. Ordinary submission edits outside the command workflow fail integrity checks. The form cannot validate every free-text answer before submission.
 
@@ -29,15 +31,27 @@ Closing a submission Issue before acceptance cancels it: the workflow closes its
 
 The working-group dropdown allows multiple selections, is required, and has no default. Actions also checks that at least one valid group was selected. One **Deliverables** section contains the separate optional dropdowns for each group. Its introduction explains that deliverables for unselected groups are ignored. GitHub cannot conditionally disable these menus; they start empty so optional deliverables are not selected accidentally. A group with an empty catalogue remains selectable but has no deliverable dropdown.
 
+## CPP declarations (SC only)
+
+Use **Declare a CPP (SC only)** to declare an unassigned Critical Path Project. The workflow checks the actual Issue author's live active organization and steering-committee membership. The form may be visible to all repository readers; a non-SC submission is rejected and closed without a proposal branch or PR.
+
+The CPP form shares the EP form's title, working groups, optional deliverable menus, description, Slack channel, main repository and related links. It omits all lead, contributor and PhD inputs. Generated records have `kind: CPP`, `leads: []`, and `contributors: []`; `phd_thesis` is omitted. The submitter remains in submission provenance without becoming a lead. CPP Issue and PR summaries omit these removed sections and identify the kind correctly.
+
+CPP declarations follow the same review PR, reviewer routing (`aguinot` during testing), independent policy check, retry, cancellation and acceptance process as EP proposals. Only live SC members may edit a CPP declaration while its Issue and review PR remain open. Retained-field commands work as documented below. Lead/contributor add/remove commands and `/edit phd` are unavailable, including for SC, and are omitted from CPP command help. They are also rejected during independent command replay. Ordinary active members may still use information/help commands.
+
+The declaration form applies only `new-cpp-project`; the EP form applies only `new-project`. Keep the original label throughout review. Both labels together are rejected; changing a label cannot convert an existing proposal. The new label must exist in the repository before the CPP form is used; see installation below. Shared wording and catalogues generate both forms from `project_workflow/config.yaml` and `working_groups/`.
+
+Claiming or assigning CPP projects is deferred to a later implementation. KEY declarations and post-acceptance member editing are outside this update. Existing accepted records are preserved.
+
 ## Files and routine changes
 
 - `project_workflow/config.yaml`: form wording, schema, kind rules, reviewer routing and live SC team identifier.
 - `working_groups/<CODE>.yaml`: a group's description and deliverables. This directory remains at the repository root and defines the allowed groups.
 - `projects/<ID>.yaml`: accepted machine-readable records.
 - `project_workflow/`: parsing, validation, PR creation and generation code; optional offline behavior tests.
-- `.github/`: native GitHub form, CODEOWNERS and two workflows.
+- `.github/`: native GitHub forms, CODEOWNERS and two workflows.
 
-Change the authoritative source only. **Project maintenance** regenerates the native form and CODEOWNERS after a main commit or on an SC-authored PR. On an SC PR, generation appends the outputs to that same branch. If main protection rejects an automatic generation commit, it creates a synchronization PR containing only generated outputs. The generator executes accepted main code and reads proposed configuration as data.
+Change the authoritative source only. **Project maintenance** regenerates both native forms and CODEOWNERS after a main commit or on an SC-authored PR. On an SC PR, generation appends the outputs to that same branch. If main protection rejects an automatic generation commit, it creates a synchronization PR containing only generated outputs. The generator executes accepted main code and reads proposed configuration as data.
 
 Add a working group by adding its catalogue, for example:
 
@@ -62,11 +76,11 @@ working_groups:
     deliverable_ids: []
 ```
 
-CPP and KEY are absent from the submission form. SC can manage their YAML records separately; the schema still allows both, including an unassigned project with `leads: []`. Automated CPP/KEY claiming is not implemented.
+The EP form stays fixed to EP. CPP has its own SC-only declaration form. KEY records can still be managed through the existing SC YAML process; no KEY form or member claim capability is added.
 
 ## Workflows and permissions
 
-**Project workflows** processes new-project Issue events and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Bot-created PRs explicitly dispatch this check because `GITHUB_TOKEN` writes do not reliably trigger PR workflows.
+**Project workflows** processes EP/CPP submission Issue events and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Bot-created PRs explicitly dispatch this check because `GITHUB_TOKEN` writes do not reliably trigger PR workflows.
 
 **Project maintenance** synchronizes generated files, checks registry and SC-team access, and provides `projects.json` and combined `working_groups.yaml` as downloadable `registry-catalogues` artifacts. Source edits support both main commits and SC PRs. No unit-test suite is a mandatory workflow gate.
 
@@ -76,7 +90,7 @@ During testing keep `reviewers: [aguinot]`. Switching that setting to `steering_
 
 ## Comment commands
 
-Post one command per comment on the submission Issue. Edits are allowed only while both the Issue and its existing review PR are open and unmerged. The original submitter, current project leads and SC members can edit, subject to live active organization membership. Contributors and other active organization members can use help and information commands. These metadata roles do not grant repository write permissions.
+Post one command per comment on the submission Issue. Edits are allowed only while both the Issue and its existing review PR are open and unmerged. For EP, the original submitter, current project leads and SC members can edit, subject to live active organization membership. CPP declaration edits require live SC membership and cover only retained fields. Contributors and other active organization members can use help and information commands. These metadata roles do not grant repository write permissions.
 
 Use `/help`, `/edit help`, `/edit add help`, `/edit add contributor help`, or the same help pattern for any other command. Syntax and help are defined together in `project_workflow/commands.py`, the authoritative command reference. Example comments:
 
@@ -115,7 +129,7 @@ Names may be unquoted or quoted; when adding people, `name=` comes before `usern
 
 Deliverable replacement takes any number of IDs, keeps each ID once, and replaces the complete list. IDs must exactly match the catalogues: the current SCM catalogue uses `SCM-1`, while CPIP uses `CPI-1`. Dot-separated aliases are not inferred. Groups must already be selected; unknown, ambiguous or unselected-group deliverables reject the whole edit. Group replacement removes deliverables belonging to removed groups and mentions that in the confirmation. Empty deliverable lists remain valid.
 
-Other commands include `/edit slack #channel`, `/edit github https://github.com/OWNER/REPOSITORY`, `/edit phd true|false`, `/edit remove contributor username=janesmith`, `/edit remove lead username=janesmith`, `/edit remove links URL1 URL2`, `/edit remove slack`, `/edit remove github`, and `/edit remove deliverables`. Removing the final lead is rejected. Adding a contributor already listed as a lead/contributor is rejected; adding a lead who is currently a contributor promotes them and removes their contributor entry. The initial form still accepts only one lead.
+Other commands include `/edit slack #channel`, `/edit github https://github.com/OWNER/REPOSITORY`, `/edit phd true|false`, `/edit remove contributor username=janesmith`, `/edit remove lead username=janesmith`, `/edit remove links URL1 URL2`, `/edit remove slack`, `/edit remove github`, and `/edit remove deliverables`. Removing the final lead is rejected. Adding a contributor already listed as a lead/contributor is rejected; adding a lead who is currently a contributor promotes them and removes their contributor entry. The EP form still accepts only one lead; the CPP declaration form accepts no people or PhD information.
 
 `/deliverables` lists all groups; `/deliverables SCM` or `/deliverables SCM CPIP` filters that list. `/description` prints exact Markdown source in a copyable code block, including nested fences. After acceptance, this information command reads the trusted accepted record on main. Commands cannot edit accepted projects; later changes require SC review through the existing administrative process.
 
@@ -133,15 +147,24 @@ GitHub does not provide a single transaction spanning a branch, Issue and PR. A 
 
 ## Install this update
 
-This patch is based on main commit `28bf14aae08be504f9086a0650c516a6c7f764b2`. Existing proposals and their recorded commands remain valid. Use `/edit deliverables` and `/edit remove deliverables` for new commands; the old singular spelling remains readable for existing command receipts.
+This CPP declaration patch is based on main commit `4981d05af3e7eee397c45e6e450dec17a12a88d9`. Existing EP proposals, command receipts and accepted records remain valid. No new secret or workflow permission is required.
 
-1. Apply the patch and review `git diff`. Keep existing proposals open.
-2. Publish the update to main through your usual direct commit or SC PR process.
-3. Run Project maintenance on main to refresh the form. It also runs after the publication push. No new secret or permission is required; the existing submission job handles `issue_comment` events with trusted main code.
-4. Review routing remains `aguinot`. Live test the commands below before production.
-5. For a title command recorded before this update, post `/edit title Your project title` again as a new comment to rename its Issue too. Do not change the previous command comment.
+1. Apply the patch and review `git diff`. Publish through your usual direct-main or SC PR process.
+2. Create the CPP routing label once before using the new form (or create it through **Issues → Labels**):
+
+   ```bash
+   gh label create new-cpp-project --repo Roman-HLIS-Cosmology-PIT/PIT-projects --color 5319e7 --description "SC-only CPP declaration" --force
+   ```
+
+3. Run **Project maintenance** on current main after publication if needed. It also runs after a push and refreshes both forms and CODEOWNERS.
+4. Review routing remains `aguinot`. Test an SC declaration and an ordinary-member rejection before production.
 
 ## Test on GitHub
+
+- Submit a CPP as an SC member. Confirm no lead/contributor/PhD form sections, correct CPP summary, empty people lists, omitted `phd_thesis`, and one review PR requesting `aguinot`.
+- Submit the same CPP form as an ordinary member. Expect an explanatory failure, `invalid`, a closed Issue, and no proposal branch/PR.
+- On a CPP declaration, edit each retained field as SC. Try people/PhD commands as SC and a retained-field edit as an ordinary member: all must reject without changing the proposal. CPP `/help` must list only applicable commands.
+- Retry a CPP submission/edit, close another CPP Issue to cancel, and merge a third to accept. Confirm the existing EP behavior below is preserved.
 
 - Open the New Project form and try submitting with no working groups selected. The required dropdown must block submission. Actions also rejects a missing selection if the Issue body is altered manually.
 - Submit a valid EP with SCM and CAS selected, SCM deliverables selected, and CAS deliverables empty. Select a CPIP deliverable while leaving CPIP unselected; it must be absent from the generated YAML. Check the formatted Issue body, original submission date, reviewer `aguinot`, and successful **Project policy** status.
