@@ -1,0 +1,23 @@
+schema_version: 1
+project_id: P000031
+name: Test CPP 2
+kind: CPP
+status: active
+leads: []
+contributors: []
+related_links:
+- https://github.com/aguinot/metacoadd
+github_url: https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-3
+  - SCM-4
+summary: Test 2
+submission:
+  issue_number: 31
+  submitted_by: aguinot
+  submitted_at: '2026-10-15T22:34:09Z'
+  issue_title_sha256: 49a39f3b79d215352f5639191b83e1349543eafff0d07e622fe79dd7b4e8025e
+  issue_body_sha256: f7639e4e99444906a5e2d601d976fe0c2de85e40ca8be3d23a0f341b4b96795e
