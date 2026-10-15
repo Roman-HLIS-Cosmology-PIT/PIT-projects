@@ -277,7 +277,7 @@ class CPPClaimTests(unittest.TestCase):
         self.api.pr['state'] = 'closed'
         self.api.other_issues[13] = {**claim_issue(self.ctx),'number':13}
         self.assertEqual(issue_intake.process(self.api,self.teams,13,repo_check=lambda u:None),'created')
-        self.assertEqual(issue_intake.process(self.api,self.teams,12,repo_check=lambda u:None),'invalid')
+        self.assertEqual(issue_intake.process(self.api,self.teams,12,repo_check=lambda u:None),'rejected')
 
     def test_claims_for_distinct_projects_can_coexist(self):
         other = accepted_cpp(project_id='P000043',name='Other CPP')

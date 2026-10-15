@@ -7,7 +7,7 @@ on:
     types: [created, edited, deleted]
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
+    types: [opened, synchronize, reopened, edited, ready_for_review, closed]
   workflow_dispatch:
     inputs:
       operation:
@@ -43,7 +43,8 @@ jobs:
         contains(github.event.issue.labels.*.name, 'new-cpp-project') ||
         contains(github.event.issue.labels.*.name, 'claim-cpp')) &&
        (github.event.action != 'created' || startsWith(github.event.comment.body, '/'))) ||
-      (github.event_name == 'pull_request_target' && github.event.action == 'reopened' &&
+      (github.event_name == 'pull_request_target' &&
+       (github.event.action == 'reopened' || github.event.action == 'closed') &&
        github.event.pull_request.user.id == 41898282 &&
        startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-')) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'submit')
@@ -74,7 +75,7 @@ jobs:
   validate:
     name: Validate project policy
     if: >-
-      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'pull_request_target' && github.event.action != 'closed') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'validate')
     concurrency:
       group: project-submission-and-policy

@@ -27,7 +27,7 @@ If required information or submission integrity fails validation, the bot adds `
 There is no replacement form or replacement-Issue chain. Use comment commands for proposal edits; do not manually edit the Issue summary, hidden source, or an already-applied command comment. Ordinary submission edits outside the command workflow fail integrity checks. The form cannot validate every free-text answer before submission.
 
 
-Closing a submission Issue before acceptance cancels it: the workflow closes its unmerged PR and removes only its verified submission branch. This cleanup works without a membership token. Reopening a cancelled submission does not resurrect it. Closing a PR alone keeps its branch; SC can reopen that PR. After acceptance, changes go through an SC-authored PR or an authorized direct main commit.
+Closing a submission Issue before acceptance cancels it: the workflow closes its unmerged PR and removes only its verified submission branch. This cleanup works without a membership token. Reopening a cancelled submission does not resurrect it. Closing an automated review PR without merging rejects the submission: the workflow closes its linked Issue as not planned and deletes only its verified proposal branch. This applies to EP proposals, CPP declarations and CPP claims, including submissions corrected with edit commands. A merged PR is never treated as rejected. A rejected submission requires a new Issue rather than reopening its old PR. After acceptance, changes go through an SC-authored PR or an authorized direct main commit.
 
 ### Working groups and deliverables
 
@@ -53,7 +53,7 @@ The rest of the form contains optional Slack channel, main GitHub repository, re
 
 A valid submission renames its Issue and review PR to **Claim CPP: <project title>**. It updates the existing `projects/<ID>.yaml` on an Issue-scoped proposal branch, preserving project ID, status, scientific definition and original declaration provenance. Separate `claim` provenance records the claim Issue, requester, date, native-answer hash, canonical-title hash, accepted-record hash and authenticated edit receipts. Manually declared CPP records without `submission` provenance are supported. The accepted record on main is unchanged until SC merges the claim PR. Review is routed to `aguinot` during testing.
 
-Only one open claim PR is allowed per CPP. The serialized intake and independent policy validator check this live, so concurrent submissions and old form pages cannot assign the same project twice. A pending target can remain visible in the static dropdown until acceptance; a second claim is rejected with the existing claim Issue identified. Closing the claim Issue cancels its PR and removes only its verified branch. Closing just the PR also releases the reservation; SC may reopen it if no competing claim exists. Reopening an older claim while another is open triggers intake again and closes the conflicting reopened claim; independent policy validation also rejects competing claims. Cancellation or rejection leaves the accepted CPP unchanged.
+Only one open claim PR is allowed per CPP. The serialized intake and independent policy validator check this live, so concurrent submissions and old form pages cannot assign the same project twice. A pending target can remain visible in the static dropdown until acceptance; a second claim is rejected with the existing claim Issue identified. Closing the claim Issue cancels its PR and removes only its verified branch. Closing the claim PR without merging also closes the claim Issue and deletes its verified branch. Its reservation is released, so another member can submit a fresh claim for the still-eligible CPP. The accepted project and its available-project dropdown entry remain unchanged. Stale closure events for a currently reopened or merged PR do not trigger cleanup; rejected submissions require a new Issue. Cancellation or rejection leaves the accepted CPP unchanged.
 
 While both the claim Issue and PR are open, the original claimant, current proposed leads and SC can edit people, Slack, main repository and related links, subject to live organization membership. Existing add/remove commands apply, including removal by name or username; the last lead cannot be removed. The selected project stays fixed. Title, description, working-group, deliverable and PhD commands are unavailable in a claim Issue, including through nested help or replay. SC changes to the scientific definition use the existing administrative route. `/description` and `/deliverables` remain informational. After acceptance, claim commands no longer edit the accepted project.
 
@@ -102,7 +102,7 @@ The EP form stays fixed to EP. CPP has its own SC-only declaration form. KEY rec
 
 ## Workflows and permissions
 
-**Project workflows** processes EP/CPP submission Issue events and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Bot-created PRs explicitly dispatch this check because `GITHUB_TOKEN` writes do not reliably trigger PR workflows.
+**Project workflows** processes EP/CPP submission and claim Issue events, unmerged review PR closures and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Bot-created PRs explicitly dispatch this check because `GITHUB_TOKEN` writes do not reliably trigger PR workflows.
 
 **Project maintenance** synchronizes generated files, checks registry and SC-team access, and provides `projects.json` and combined `working_groups.yaml` as downloadable `registry-catalogues` artifacts. Source edits support both main commits and SC PRs. No unit-test suite is a mandatory workflow gate.
 
@@ -169,19 +169,18 @@ GitHub does not provide a single transaction spanning a branch, Issue and PR. A 
 
 ## Install this update
 
-The CPP claim patch is based on main commit `60bf25c`. Existing EP/CPP declarations, accepted records and command histories remain valid. No new secret is required. The maintenance job gains read-only Issue access to revalidate pending claims after changes to main.
+This rejection-cleanup patch is based on main commit `60c4ce3`. It adds `pull_request_target: closed` handling to the existing trusted-main submission job, with the same serialization group and existing repository permissions. No new label, secret or permission is required. Closing an automated review PR without merging now terminates its submission instead of keeping it available for reopening.
 
-1. Apply the patch, inspect `git diff`, and publish through your usual direct-main or SC PR process.
-2. Create the claim routing label before using the form (or create it in **Issues → Labels**):
+Apply and publish through the usual direct-main or SC PR process. New PR closure events run the updated main code. For a PR closed before publication, use **Project workflows → Run workflow → main → operation `submit` → its Issue number** to run the same rejection cleanup. This retry also works without a membership token. No registry record or available-project list needs a manual edit after rejection.
 
-   ```bash
-   gh label create claim-cpp --repo Roman-HLIS-Cosmology-PIT/PIT-projects --color 0e8a16 --description "CPP claim for SC review" --force
-   ```
-
-3. Run **Project maintenance** on current main if needed. It also runs on pushes and regenerates all forms, including availability after accepted claims or removal/retirement. Merge any generated-file synchronization PR if protection prevents a direct update.
-4. Keep reviewer routing as `aguinot` for testing. Require **Project policy** and an up-to-date branch for production merges.
+The workflow re-reads live PR state, verifies bot identity, repository, target branch, Issue binding and the scoped proposal commit before closing the Issue. It deletes only the verified reserved branch. A missing ref is supported by verifying the retained PR head; retries finish interrupted deletion without duplicating the cancellation comment. Cleanup does not require SC membership lookup. Unrelated/human/fork PRs, merged PRs and stale close events for reopened PRs are excluded. If a scoped branch contains unrelated changes or advances unexpectedly, cleanup fails safely and SC must inspect it.
 
 ## Test on GitHub
+
+- Submit and correct an EP, CPP declaration and CPP claim. Close each review PR without merging. Expect a closed Issue, cancellation feedback and deletion of only that proposal branch.
+- After rejecting a claim, submit a new claim as a different member for the same CPP. The accepted record must remain unchanged until the new claim is merged.
+- Merge a proposal instead: normal acceptance must apply, with no rejection feedback or rejection-based branch deletion.
+- Retry cleanup and try a PR whose branch was manually deleted. The Issue must still close without duplicate comments or changes to other proposals. Membership-token availability must not affect rejection cleanup.
 
 - As an ordinary member, claim one accepted unassigned CPP. Confirm lead fields first, a single project dropdown, canonical Issue/PR titles, reviewer `aguinot`, original declaration metadata preserved, and main unchanged before merge.
 - Supply replacement Slack/repository values, additional links and contributors. Try blank optional fields too. Remove an SC-declared link with a claim command.

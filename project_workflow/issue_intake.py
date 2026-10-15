@@ -50,15 +50,16 @@ def associated_pr(api, issue_number):
     return matches[0] if matches else None
 
 
-def branch_snapshot(api, issue):
+def branch_snapshot(api, issue, *, sha=None):
     """Verify a reserved branch before updating or deleting it."""
     branch = submission_branch(issue['number'])
-    try:
-        sha = api.get('git/ref/heads/' + branch)['object']['sha']
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None, None, None
-        raise
+    if sha is None:
+        try:
+            sha = api.get('git/ref/heads/' + branch)['object']['sha']
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None, None, None
+            raise
     commit = api.get('git/commits/' + sha)
     if len(commit['parents']) != 1 or commit['message'] != f"Project submission {issue['number']}":
         raise Invalid('Submission branch has unrelated history; ask SC to inspect it')
@@ -92,7 +93,7 @@ def cancelled(api, issue_number):
                for c in api.pages(f'issues/{issue_number}/comments'))
 
 
-def cancel_submission(api, issue):
+def cancel_submission(api, issue, *, message=None):
     pr = associated_pr(api,issue['number'])
     if pr and pr.get('merged_at'):
         feedback(api,issue['number'],f"**Your project has been reviewed and accepted.** [View the accepted pull request](https://github.com/{api.repo}/pull/{pr['number']}).",marker=ACCEPTED_MARKER)
@@ -116,13 +117,70 @@ def cancel_submission(api, issue):
     # Record cancellation first so reopening cannot resurrect a proposal,
     # including after a partial cleanup failure.
     if not cancelled(api,issue['number']):
-        feedback(api,issue['number'],'**Project submission cancelled.** Its unmerged PR is closed. Use the New Project form to start again.',marker=CANCEL_MARKER)
+        feedback(api,issue['number'],message or '**Project submission cancelled.** Its unmerged PR is closed. Use the appropriate project form to start again.',marker=CANCEL_MARKER)
     if sha:
+        if pr:
+            latest = api.get(f"pulls/{pr['number']}")
+            if latest.get('merged_at'):
+                return 'already-merged'
+            if latest.get('state') != 'closed':
+                return 'closure-reversed'
+            if latest['head'] != pr['head']:
+                raise Invalid('Proposal head changed before cleanup; retry')
         branch = submission_branch(issue['number'])
         if api.get('git/ref/heads/' + branch)['object']['sha'] != sha:
             raise Invalid('Submission branch advanced before deletion; retry')
         api.request('DELETE','git/refs/heads/' + branch)
     return 'cancelled'
+
+
+def reject_submission(api, pr_number):
+    """Closing an unmerged review PR terminates its EP/CPP declaration or claim."""
+    from project_workflow.submission import branch_issue
+    pr = api.get(f'pulls/{number(pr_number)}')
+    if (not is_submission_bot(pr['user'])
+            or pr['head'].get('repo',{}).get('full_name') != api.repo
+            or pr['base'].get('repo',{}).get('full_name') != api.repo
+            or pr['base']['ref'] != 'main'
+            or not pr['head']['ref'].startswith('project-submissions/issue-')):
+        return 'ignored'
+    if pr.get('merged_at'):
+        return 'already-merged'
+    if pr.get('state') != 'closed':
+        return 'closure-reversed'
+    issue_number = branch_issue(pr['head']['ref'])
+    issue = api.get(f'issues/{issue_number}')
+    associated = associated_pr(api,issue_number)
+    if associated is None or associated['number'] != pr['number']:
+        raise Invalid('Closed PR is not the verified proposal for this Issue')
+    sha, _, stored = branch_snapshot(api,issue)
+    if sha is None:
+        # A manually deleted ref must not prevent closing the linked Issue.
+        # The retained PR head is still checked against the same scope rules.
+        _, _, stored = branch_snapshot(api,issue,sha=pr['head']['sha'])
+    elif sha != pr['head']['sha']:
+        raise Invalid('Proposal branch changed before rejection cleanup; retry')
+    latest = api.get(f"pulls/{pr['number']}")
+    if latest.get('merged_at'):
+        return 'already-merged'
+    if latest.get('state') != 'closed':
+        return 'closure-reversed'
+    if any(latest[key] != pr[key] for key in ('user','head','base')):
+        raise Invalid('Closed PR changed before cleanup; retry')
+    current = api.get(f'issues/{issue_number}')
+    if current['user'] != issue['user']:
+        raise Invalid('Submission requester changed before cleanup; retry')
+    api.status(pr['head']['sha'],'failure','Review PR closed without acceptance')
+    if current.get('state') != 'closed':
+        current = api.request('PATCH',f'issues/{issue_number}',{'state':'closed','state_reason':'not_planned'})
+        if current.get('state') != 'closed' or current.get('user') != issue['user']:
+            raise Invalid('Could not confirm Issue closure; retry cleanup')
+    noun = 'CPP claim' if workflow_kind(stored) == 'CLAIM' else 'Project proposal'
+    message = '**' + noun + ' closed without acceptance.** Its review PR was closed without merging, so this submission is cancelled. Use the appropriate form to submit a new proposal or claim.'
+    if workflow_kind(stored) == 'CLAIM':
+        message += '\n\nThe accepted CPP record was not changed. An eligible, unassigned CPP remains available for another claim.'
+    result = cancel_submission(api,current,message=message)
+    return 'rejected' if result == 'cancelled' else result
 
 
 def repository_warning(url):
@@ -190,8 +248,10 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
     if pr and pr.get('merged_at'):
         return 'already-merged'
     if cancelled(api,issue_number):
-        feedback(api,issue_number,'**This submission was cancelled.** Use the New Project form to start again.')
+        feedback(api,issue_number,'**This submission was cancelled.** Use the appropriate project form to start again.')
         return 'cancelled'
+    if pr and pr.get('state') == 'closed':
+        return reject_submission(api,pr['number'])
     if not labelled(issue) and pr is None:
         return 'ignored'
     if pr:
@@ -213,8 +273,6 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         path = record_path(record)
         if path in base_tree and workflow_kind(record) != 'CLAIM':
             raise Invalid('The project ID already exists; it will not be overwritten')
-        if pr and pr['state'] == 'closed':
-            raise Invalid('The proposal PR was closed without merging. Ask SC to reopen it; no duplicate PR will be created')
         values = resolved_values(issue,ctx)
         cleaned, removed = optional_fields(values,ctx)
         if workflow_kind(record) == 'CLAIM':
@@ -329,11 +387,15 @@ def main():
             # Reopening an old claim must not create a second active reservation.
             from project_workflow.submission import branch_issue
             pr = api.get(f"pulls/{number(event['pull_request']['number'])}")
-            if (event.get('action') != 'reopened' or not is_submission_bot(pr['user'])
+            if (event.get('action') not in {'reopened','closed'} or not is_submission_bot(pr['user'])
                     or pr['head']['repo']['full_name'] != api.repo
                     or pr['base']['repo']['full_name'] != api.repo or pr['base']['ref'] != 'main'):
                 return 0
             issue_number = branch_issue(pr['head']['ref'])
+            if event.get('action') == 'closed':
+                result = reject_submission(api,pr['number'])
+                print(json.dumps({'issue':issue_number,'result':result}))
+                return 0
             issue = api.get(f'issues/{issue_number}')
             _, _, stored = branch_snapshot(api,issue)
             if stored is None or workflow_kind(stored) != 'CLAIM':
