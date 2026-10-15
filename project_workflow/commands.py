@@ -409,7 +409,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
                 current=current_record(api,issue,ctx,teams,stored,allow_previous=True)
             else:
                 raise Invalid('There is no active proposal or accepted project to display.')
-            text=source_block(current['summary'])
+            text='Project description:\n\n'+source_block(current['summary'])
             if len(text)>64000:raise Invalid('The description exceeds the reply limit; view its complete source in the project YAML.')
             feedback(api,issue_number,text,marker=marker)
             return 'description'
