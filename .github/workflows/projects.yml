@@ -35,11 +35,17 @@ jobs:
        (github.event.action == 'closed' ||
         contains(github.event.issue.labels.*.name, 'new-project') ||
         contains(github.event.issue.labels.*.name, 'new-cpp-project') ||
-        github.event.label.name == 'new-project' || github.event.label.name == 'new-cpp-project')) ||
+        contains(github.event.issue.labels.*.name, 'claim-cpp') ||
+        github.event.label.name == 'new-project' || github.event.label.name == 'new-cpp-project' ||
+        github.event.label.name == 'claim-cpp')) ||
       (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
        (contains(github.event.issue.labels.*.name, 'new-project') ||
-        contains(github.event.issue.labels.*.name, 'new-cpp-project')) &&
+        contains(github.event.issue.labels.*.name, 'new-cpp-project') ||
+        contains(github.event.issue.labels.*.name, 'claim-cpp')) &&
        (github.event.action != 'created' || startsWith(github.event.comment.body, '/'))) ||
+      (github.event_name == 'pull_request_target' && github.event.action == 'reopened' &&
+       github.event.pull_request.user.id == 41898282 &&
+       startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-')) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'submit')
     concurrency:
       group: project-submission-and-policy

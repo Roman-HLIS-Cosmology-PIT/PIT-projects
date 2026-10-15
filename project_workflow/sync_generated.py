@@ -170,6 +170,8 @@ def main():
             result = synchronize(api, TeamDirectory(os.environ.get("SC_TEAM_READ_TOKEN", "")), pr_number, checkout_sha=checkout_sha)
         else:
             result = synchronize_main(api, checkout_sha=checkout_sha)
+            from project_workflow.claims import refresh_checks
+            refresh_checks(api)
         print("Repository generation: " + result)
         return 0
     except urllib.error.HTTPError as exc:

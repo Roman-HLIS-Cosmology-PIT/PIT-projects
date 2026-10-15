@@ -9,9 +9,10 @@ import yaml
 from project_workflow.project_registry import Invalid, load_local_context, parse_yaml
 
 LABEL = 'new-project'
-FORM_LABELS = {'EP': LABEL, 'CPP': 'new-cpp-project'}
+FORM_LABELS = {'EP': LABEL, 'CPP': 'new-cpp-project', 'CLAIM': 'claim-cpp'}
 FORM_PATHS = {'EP': '.github/ISSUE_TEMPLATE/new-project.yml',
-              'CPP': '.github/ISSUE_TEMPLATE/new-cpp-project.yml'}
+              'CPP': '.github/ISSUE_TEMPLATE/new-cpp-project.yml',
+              'CLAIM': '.github/ISSUE_TEMPLATE/claim-cpp.yml'}
 CPP_OMITTED_FIELDS = {'lead', 'lead_github_username', 'phd_thesis'}
 BRANCH_PREFIX = 'project-submissions/issue-'
 BOT_LOGIN = 'github-actions[bot]'
@@ -51,8 +52,9 @@ def form(ctx, kind='EP'):
     variants = spec.pop('variants', {})
     if kind != 'EP':
         variant = deepcopy(variants.get(kind, {}))
-        if set(variant) != {'name', 'description', 'labels', 'introduction'}:
-            raise Invalid('CPP form variant requires name, description, labels and introduction')
+        required = {'name', 'description', 'labels', 'introduction'} | ({'title'} if kind == 'CLAIM' else set())
+        if set(variant) != required:
+            raise Invalid('Form variant requires name, description, labels, introduction and claim title where applicable')
         introduction = variant.pop('introduction')
         if not spec['body'] or spec['body'][0].get('type') != 'markdown':
             raise Invalid('Shared form must start with its introduction')
@@ -66,6 +68,20 @@ def form(ctx, kind='EP'):
         identifier = item.get('id', '')
         if kind == 'CPP' and (ep_only or identifier in CPP_OMITTED_FIELDS or CONTRIBUTOR_FIELD.fullmatch(identifier)):
             continue
+        if kind == 'CLAIM':
+            if identifier == 'lead_github_username':
+                expanded.append(item)
+                from project_workflow.claims import project_options
+                expanded.append({'type':'dropdown', 'id':'claim_project',
+                    'attributes':{'label':'CPP project to claim', 'multiple':False,
+                        'description':'Select exactly one project. Availability is checked again on submission.',
+                        'options':project_options(ctx) or ['No CPP projects available']},
+                    'validations':{'required':True}})
+                continue
+            if identifier in {'working_groups', 'summary', 'phd_thesis'} or item.get('type') == 'working_group_sections':
+                continue
+            if item.get('type') == 'markdown' and item['attributes']['value'].startswith('## Deliverables'):
+                continue
         source = item.pop('options_from', None)
         if item.get('type') == 'working_group_sections':
             for code, group in sorted(ctx.working_groups.items()):
@@ -89,6 +105,8 @@ def form(ctx, kind='EP'):
     expected = CORE_FIELDS | {deliverable_field(c) for c in ctx.working_groups if ctx.deliverables[c]}
     if kind == 'CPP':
         expected -= CPP_OMITTED_FIELDS
+    elif kind == 'CLAIM':
+        expected = {'lead','lead_github_username','claim_project','slack_channel','github_url','related_links'}
     extras = set(fields) - expected
     if not expected <= set(fields) or (extras if kind == 'CPP' else any(not CONTRIBUTOR_FIELD.fullmatch(k) for k in extras)):
         raise Invalid('Form fields must match the submission handler')

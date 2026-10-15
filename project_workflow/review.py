@@ -63,7 +63,7 @@ def summary_body(record, ctx):
     def person(name, username):
         return safe_text(name) + ' · ' + profile(username)
     rows = ['**Project title**: ' + safe_text(record['name'])]
-    if record['kind'] == 'EP':
+    if record['kind'] == 'EP' or 'claim' in record:
         rows.append(('**Project lead**: ' + person(record['leads'][0]['name'],record['leads'][0]['github_username'])
              if len(record['leads']) == 1 else '**Project leads**:\n\n' + '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['leads'])))
     kind = record['kind']
@@ -80,7 +80,7 @@ def summary_body(record, ctx):
     rows.extend(['**Slack channel**: ' + safe_text(record.get('slack_channel') or 'Not provided'),
                  '**Main GitHub repository**: ' + (link(record['github_url']) if record.get('github_url') else 'Not provided'),
                  '**Project description**:',safe_text(record['summary'],markdown=True)])
-    if record['kind'] == 'EP':
+    if record['kind'] == 'EP' or 'claim' in record:
         rows.extend(['**Contributors**:',
                      '\n'.join('- ' + person(p['name'],p['github_username']) for p in record['contributors']) or 'None listed'])
     rows.extend(['**Related links**:', '\n'.join('- ' + link(url) for url in record.get('related_links',[])) or 'None provided'])
@@ -90,7 +90,8 @@ def summary_body(record, ctx):
 def proposal_body(record, ctx, repo, issue_number, warning=None):
     text = f"Submitted through [Issue #{issue_number}](https://github.com/{repo}/issues/{issue_number}).\n\nCloses #{issue_number}\n\n"
     text += summary_body(record, ctx)
-    text += f"\n**Project ID**: {record['project_id']}\n\n**Submitted at (UTC)**: {record['submission']['submitted_at']}\n"
+    from project_workflow.submission import provenance
+    text += f"\n**Project ID**: {record['project_id']}\n\n**Submitted at (UTC)**: {provenance(record)['submitted_at']}\n"
     if warning:
         text += '\n**Repository lookup**: ' + safe_text(warning) + '\n'
     text += '\nReview the generated YAML and scientific content before accepting. Passing validation does not constitute project acceptance.\n'

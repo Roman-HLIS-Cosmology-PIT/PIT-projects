@@ -8,7 +8,7 @@ import urllib.error
 
 from project_workflow.project_registry import Invalid, USERNAME, validate_record
 from project_workflow.submission import (number, proposal, submission_body, project_path,
-    issue_version, is_submission_bot, FORMATTED_MARKER, labelled, submission_kind)
+    issue_version, is_submission_bot, FORMATTED_MARKER, labelled, submission_kind, provenance, workflow_kind, record_path, issue_project_path, issue_title)
 from project_workflow.review import formatted_issue_body, safe_text
 
 # Syntax and help live together; adding a command changes this module only.
@@ -38,8 +38,13 @@ CPP_UNAVAILABLE_COMMANDS = {'edit phd', 'edit add lead', 'edit remove lead',
                             'edit add contributor', 'edit remove contributor'}
 
 
+CLAIM_UNAVAILABLE_COMMANDS = {'edit title','edit description','edit working-group',
+                              'edit deliverables','edit remove deliverables','edit phd'}
+
+
 def available(key, kind):
-    return kind != 'CPP' or key not in CPP_UNAVAILABLE_COMMANDS
+    return key not in (CLAIM_UNAVAILABLE_COMMANDS if kind == 'CLAIM' else
+                       CPP_UNAVAILABLE_COMMANDS if kind == 'CPP' else set())
 
 
 def help_text(path='', kind='EP'):
@@ -48,7 +53,7 @@ def help_text(path='', kind='EP'):
                if (key == path or key.startswith(prefix)) and available(key,kind)]
     if not options:
         if not available(path,kind):
-            raise Invalid('Lead, contributor and PhD commands are not available in CPP declarations. Use /help.')
+            raise Invalid('This command is not available in this project workflow. Use /help.')
         raise Invalid('Unknown help topic. Use /help.')
     rows = ['**Project commands**' + (' — `' + path + '`' if path else ''),
             'One command per comment. Edits are available while the submission Issue and its PR are open. ' +
@@ -150,8 +155,9 @@ def apply(record, command, ctx):
     """Atomic pure transformation; any error leaves the supplied record untouched."""
     key, value = command
     if not key.startswith('edit '): raise Invalid('This is not an edit command.')
-    if not available(key,record['kind']):
-        raise Invalid('Lead, contributor and PhD commands are not available in CPP declarations.')
+    if not available(key,workflow_kind(record)):
+        raise Invalid('Scientific-definition and PhD commands are not available in CPP claims.' if workflow_kind(record) == 'CLAIM' else
+                      'Lead, contributor and PhD commands are not available in CPP declarations.')
     candidate = deepcopy(record)
     note = ''
     if key in {'edit title','edit description','edit slack','edit github'}:
@@ -223,7 +229,7 @@ def apply(record, command, ctx):
         if key=='edit remove deliverables':
             for g in candidate['working_groups']:g['deliverable_ids']=[]
         else:candidate['slack_channel' if key=='edit remove slack' else 'github_url']=None
-    validate_record(candidate,project_path(candidate['submission']['issue_number']),ctx)
+    validate_record(candidate,record_path(candidate),ctx)
     return candidate,note
 
 
@@ -249,7 +255,7 @@ def authorize(record, issue, comment, roles):
     receipt(comment)
     login=comment['user']['login']
     member,sc=roles.get(login)
-    if record['kind'] == 'CPP':
+    if workflow_kind(record) == 'CPP':
         if not member or not sc:
             raise Invalid('Only SC members may edit CPP declarations; active organization membership is required.')
         return
@@ -263,17 +269,17 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
     """Reconstruct the YAML from native answers plus authenticated command comments."""
     roles=Roles(teams,ctx)
     member,sc=roles.get(issue['user']['login'])
-    original_title=(stored or {}).get('submission',{}).get('original_title')
+    original_title=provenance(stored).get('original_title')
     source_issue=deepcopy(issue)
     if original_title is not None:
-        if hashlib.sha256(original_title.encode('utf-8')).hexdigest()!=stored['submission']['issue_title_sha256']:
+        if hashlib.sha256(original_title.encode('utf-8')).hexdigest()!=provenance(stored)['issue_title_sha256']:
             raise Invalid('The original Issue title does not match its submission receipt.')
         source_issue['title']=original_title
     record=proposal(source_issue,ctx,organization_member=member,is_sc=sc,verify_summary=False)
     if original_title is not None:
         record['submission']['original_title']=original_title
     source=submission_body(issue)
-    edits=(stored or {}).get('submission',{}).get('edits',[])
+    edits=provenance(stored).get('edits',[])
     # A failed API update can leave the visible Issue several commands behind.
     # Accept only exact views of authenticated history, never arbitrary edits.
     previous_matches = False
@@ -290,22 +296,30 @@ def current_record(api, issue, ctx, teams, stored=None, *, allow_previous=False)
             authorize(record,issue,comment,roles)
             if allow_previous:
                 body_matches = issue['body']==formatted_issue_body(record,ctx,source) or (
-                    not record['submission'].get('edits') and issue['body']==source)
-                title_matches = original_title is None or issue['title'] in {record['name'],original_title}
+                    not provenance(record).get('edits') and issue['body']==source)
+                title_matches = (issue['title'] == issue_title(record) if workflow_kind(record) == 'CLAIM' else
+                                 original_title is None or issue['title'] in {record['name'],original_title})
                 previous_matches = previous_matches or (body_matches and title_matches)
             command=parse(comment['body'])
             if command[0]=='edit title':has_title_command=True
             record,_=apply(record,command,ctx)
-            record['submission'].setdefault('edits',[]).append(item)
+            provenance(record).setdefault('edits',[]).append(item)
         if record!=stored:
             raise Invalid('Proposal data differs from its authenticated command history.')
         if original_title is not None and not has_title_command:
             raise Invalid('Renaming the Issue requires an authenticated title command.')
     elif stored is not None and stored!=record:
         raise Invalid('The submitted proposal was changed outside the command workflow.')
+    if workflow_kind(record) == 'CLAIM':
+        from project_workflow.claims import check_reservation
+        check_reservation(api,issue,record)
     expected=formatted_issue_body(record,ctx,source)
-    matches=(issue['body']==expected or (not edits and not issue['body'].startswith(FORMATTED_MARKER))) and (
-        original_title is None or issue['title']==record['name'])
+    body_matches = issue['body']==expected or (not edits and not issue['body'].startswith(FORMATTED_MARKER))
+    if workflow_kind(record) == 'CLAIM':
+        title_matches = issue['title']==issue_title(record) or (allow_previous and issue['body']==source)
+    else:
+        title_matches = original_title is None or issue['title']==record['name']
+    matches = body_matches and title_matches
     if not matches and allow_previous:
         matches=previous_matches
     if not matches:raise Invalid('The rendered submission was changed outside the command workflow.')
@@ -336,7 +350,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
     pr=None
     try:
         sha,commit,stored=branch_snapshot(api,issue)
-        applied=next((r for r in (stored or {}).get('submission',{}).get('edits',[]) if r['comment_id']==identifier),None)
+        applied=next((r for r in provenance(stored).get('edits',[]) if r['comment_id']==identifier),None)
         if action!='created':
             if applied is None:return 'ignored'
             if action=='edited':
@@ -368,7 +382,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         if not member:raise Invalid('Commands require active organization membership.')
         key,value=command
         kind=submission_kind(issue)
-        if stored and stored['kind'] != kind:
+        if stored and workflow_kind(stored) != kind:
             raise Invalid('Restore the original project submission label; the proposal kind cannot be changed.')
         if key=='help':
             feedback(api,issue_number,help_text(value,kind),marker=marker)
@@ -388,7 +402,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         pr=associated_pr(api,issue_number)
         if key=='description':
             if value:raise Invalid('/description takes no arguments.')
-            path=project_path(issue_number)
+            path=issue_project_path(issue,ctx)
             if path in base_tree:
                 current=parse_yaml(read(path));validate_record(current,path,ctx)
             elif stored:
@@ -414,7 +428,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
             feedback(api,issue_number,confirmation(key)+' The Issue summary and the same PR are synchronized.',marker=marker)
             return 'replayed'
         authorize(current,issue,comment,roles)
-        history=current['submission'].get('edits',[])
+        history=provenance(current).get('edits',[])
         if history and identifier<=history[-1]['comment_id']:
             raise Invalid('This comment predates the latest applied edit. Post the command in a new comment.')
         candidate,note=apply(current,command,ctx)
@@ -424,11 +438,11 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         if candidate==current:
             feedback(api,issue_number,confirmation(key)+' No change was needed; the requested values are already present.',marker=marker)
             return 'unchanged'
-        candidate['submission'].setdefault('edits',[]).append(receipt(comment))
+        provenance(candidate).setdefault('edits',[]).append(receipt(comment))
         rendered=formatted_issue_body(candidate,ctx,submission_body(issue))
         if len(rendered.encode('utf-8'))>65536 or len(project_yaml(candidate).encode('utf-8'))>1024*1024:
             raise Invalid('The edit exceeds the Issue or project file size limit. Use a shorter value.')
-        validate_record(candidate,project_path(issue_number),ctx)
+        validate_record(candidate,record_path(candidate),ctx)
         def still_current():
             live_issue=api.get(f'issues/{issue_number}')
             live_pr=api.get(f"pulls/{pr['number']}")
@@ -447,7 +461,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         still_current()
         base_commit=api.get('git/commits/'+base_sha)
         tree=api.request('POST','git/trees',{'base_tree':base_commit['tree']['sha'],'tree':[
-            {'path':project_path(issue_number),'mode':'100644','type':'blob','content':project_yaml(candidate)}]})
+            {'path':record_path(candidate),'mode':'100644','type':'blob','content':project_yaml(candidate)}]})
         head=api.request('POST','git/commits',{'message':f'Project submission {issue_number}',
             'tree':tree['sha'],'parents':[base_sha]})['sha']
         still_current()

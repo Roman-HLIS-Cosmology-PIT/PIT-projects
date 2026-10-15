@@ -15,7 +15,7 @@ import urllib.request
 
 from project_workflow.project_registry import Invalid, load_context
 from project_workflow.submission import (
-    changed_files, is_submission_bot, issue_version, labelled,
+    changed_files, is_submission_bot, issue_version, labelled, provenance, workflow_kind, record_path, issue_title,
     number, project_path, project_yaml, proposal, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values,
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
@@ -63,15 +63,25 @@ def branch_snapshot(api, issue):
     if len(commit['parents']) != 1 or commit['message'] != f"Project submission {issue['number']}":
         raise Invalid('Submission branch has unrelated history; ask SC to inspect it')
     base_tree, head_tree = api.tree(commit['parents'][0]['sha']), api.tree(sha)
-    path = project_path(issue['number'])
-    if path in base_tree or changed_files(base_tree,head_tree) != {path}:
+    changed = changed_files(base_tree,head_tree)
+    if len(changed) != 1:
         raise Invalid('Submission branch contains unrelated changes; it will not be overwritten or deleted')
+    path = next(iter(changed))
     read = api.reader(head_tree)
     ctx = load_context(api.reader(base_tree),paths=base_tree)
     record = parse_yaml(read(path))
     validate_record(record,path,ctx)
-    provenance = record.get('submission',{})
-    if provenance.get('issue_number') != issue['number'] or provenance.get('submitted_by','').lower() != issue['user']['login'].lower():
+    if path != record_path(record):
+        raise Invalid('Proposal path does not match its project ID')
+    if workflow_kind(record) == 'CLAIM':
+        if path not in base_tree:
+            raise Invalid('Claim branch must update an existing accepted CPP')
+        from project_workflow.claims import validate_claim_change
+        validate_claim_change(ctx.projects[record['project_id']],record)
+    elif path in base_tree or path != project_path(issue['number']):
+        raise Invalid('A declaration branch may only add its own new project')
+    receipt = provenance(record)
+    if receipt.get('issue_number') != issue['number'] or receipt.get('submitted_by','').lower() != issue['user']['login'].lower():
         raise Invalid('Submission branch belongs to another requester')
     return sha, commit, record
 
@@ -200,15 +210,20 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         from project_workflow.commands import current_record
         old_sha, old_commit, old_record = branch_snapshot(api,issue)
         record = current_record(api,issue,ctx,teams,old_record,allow_previous=True)
-        path = project_path(issue_number)
-        if path in base_tree:
+        path = record_path(record)
+        if path in base_tree and workflow_kind(record) != 'CLAIM':
             raise Invalid('The project ID already exists; it will not be overwritten')
         if pr and pr['state'] == 'closed':
             raise Invalid('The proposal PR was closed without merging. Ask SC to reopen it; no duplicate PR will be created')
-        _, removed = optional_fields(resolved_values(issue,ctx),ctx)
-        if record['submission'].get('edits'):
+        values = resolved_values(issue,ctx)
+        cleaned, removed = optional_fields(values,ctx)
+        if workflow_kind(record) == 'CLAIM':
+            original = ctx.projects[record['project_id']]
+            if len(set(original.get('related_links',[]) + cleaned['related_links'])) > len(record['related_links']):
+                removed.append('Additional related links were removed to keep the combined list within its allowed length.')
+        if provenance(record).get('edits'):
             removed = []
-        warning = repo_check(record['github_url'])
+        warning = repo_check(record.get('github_url'))
         if old_record is not None and old_record != record:
             raise Invalid('The submitted proposal was changed. Cancel it and submit a new project; proposal editing is not supported')
         if pr and old_sha != pr['head']['sha']:
@@ -216,7 +231,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if fresh(api,issue,base_sha,ctx,teams) != record:
             raise Invalid('Requester permissions changed during processing; retry')
         rendered = formatted_issue_body(record,ctx,submission_body(issue))
-        target_title = record['name'] if 'original_title' in record['submission'] else issue['title']
+        target_title = issue_title(record) if workflow_kind(record) == 'CLAIM' or 'original_title' in provenance(record) else issue['title']
         if issue['body'] != rendered or issue['title'] != target_title:
             # Preserve very long native submissions rather than exceeding the
             # Issue body's API limit or silently truncating scientific content.
@@ -232,6 +247,13 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
                 issue = updated
                 if fresh(api,issue,base_sha,ctx,teams) != record:
                     raise Invalid('Submission changed while formatting; retry')
+        if workflow_kind(record) == 'CLAIM' and issue['title'] != target_title:
+            updated = api.request('PATCH',f'issues/{issue_number}',{'title':target_title})
+            if updated.get('title') != target_title or updated.get('user') != issue['user'] or updated.get('body') != issue['body']:
+                raise Invalid('Claim Issue changed while updating its title; retry')
+            issue = updated
+            if fresh(api,issue,base_sha,ctx,teams) != record:
+                raise Invalid('Claim changed while updating its title; retry')
         if old_record == record and old_commit['parents'][0]['sha'] == base_sha:
             head_sha = old_sha
         else:
@@ -250,7 +272,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
                 api.request('PATCH','git/refs/heads/' + branch,{'sha':head_sha,'force':True})
             else:
                 api.request('POST','git/refs',{'ref':'refs/heads/' + branch,'sha':head_sha})
-        prefix = 'New CPP project: ' if record['kind'] == 'CPP' else 'New project: '
+        prefix = 'Claim CPP: ' if workflow_kind(record) == 'CLAIM' else 'New CPP project: ' if record['kind'] == 'CPP' else 'New project: '
         payload = {'title':(prefix + record['name'])[:256],
                    'body':proposal_body(record,ctx,api.repo,issue_number,warning)}
         had_pr = pr is not None
@@ -261,7 +283,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         request_review(api,pr,ctx)
         dispatch_validation(api,pr['number'])
         set_invalid(api,issue,False)
-        message = '**Your project has been submitted.** [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
+        heading = '**Your CPP claim has been submitted.**' if workflow_kind(record) == 'CLAIM' else '**Your project has been submitted.**'
+        message = heading + ' [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
         if not issue['body'].startswith(FORMATTED_MARKER):
             message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
         message += '\nEntries can be edited using commands. Comment `/help` or `/edit help` to see the available options.\n'
@@ -281,7 +304,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if current_pr and current_pr['state'] == 'open':
             api.status(current_pr['head']['sha'],'failure','Submission validation failed; see the Issue')
         set_invalid(api,issue,True)
-        template = 'new-cpp-project.yml' if any(x['name'] == 'new-cpp-project' for x in issue.get('labels',[])) else 'new-project.yml'
+        labels = {x['name'] for x in issue.get('labels',[])}
+        template = 'claim-cpp.yml' if 'claim-cpp' in labels else 'new-cpp-project.yml' if 'new-cpp-project' in labels else 'new-project.yml'
         url = f'https://github.com/{api.repo}/issues/new?template={template}'
         message = '**Your project could not be submitted. This Issue has been closed.**\n\n' + '\n'.join('- ' + safe_text(line) for line in str(exc).splitlines())
         message += f'\n\nAddress the problems above, then [submit a new project](<{url}>).'
@@ -297,11 +321,25 @@ def main():
     try:
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
         raw = os.environ.get('SUBMISSION_ISSUE_NUMBER','')
-        issue_number = number(int(raw)) if raw else number(event['issue']['number'])
         api = GitHub(os.environ['GITHUB_REPOSITORY'],os.environ['GITHUB_TOKEN'])
         checkout = subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
         if checkout != api.get('git/ref/heads/main')['object']['sha']:
             raise Invalid('Submission code must run from current main; rerun this workflow')
+        if event.get('pull_request'):
+            # Reopening an old claim must not create a second active reservation.
+            from project_workflow.submission import branch_issue
+            pr = api.get(f"pulls/{number(event['pull_request']['number'])}")
+            if (event.get('action') != 'reopened' or not is_submission_bot(pr['user'])
+                    or pr['head']['repo']['full_name'] != api.repo
+                    or pr['base']['repo']['full_name'] != api.repo or pr['base']['ref'] != 'main'):
+                return 0
+            issue_number = branch_issue(pr['head']['ref'])
+            issue = api.get(f'issues/{issue_number}')
+            _, _, stored = branch_snapshot(api,issue)
+            if stored is None or workflow_kind(stored) != 'CLAIM':
+                return 0
+        else:
+            issue_number = number(int(raw)) if raw else number(event['issue']['number'])
         teams = TeamDirectory(os.environ['SC_TEAM_READ_TOKEN']) if os.environ.get('SC_TEAM_READ_TOKEN') else None
         if event.get('comment'):
             from project_workflow.commands import process as command_process

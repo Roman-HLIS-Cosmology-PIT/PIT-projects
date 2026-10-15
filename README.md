@@ -6,6 +6,8 @@ Project proposals are submitted through a GitHub Issue Form and reviewed through
 
 [Declare a CPP (SC only)](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=new-cpp-project.yml)
 
+[Claim an available CPP](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=claim-cpp.yml)
+
 ## Submission and review
 
 1. Use the Issue title as the project title. Enter the required lead name, GitHub username, description and PhD answer. Ordinary members must submit as their own lead; SC members may submit on another person's behalf.
@@ -41,7 +43,27 @@ CPP declarations follow the same review PR, reviewer routing (`aguinot` during t
 
 The declaration form applies only `new-cpp-project`; the EP form applies only `new-project`. Keep the original label throughout review. Both labels together are rejected; changing a label cannot convert an existing proposal. The new label must exist in the repository before the CPP form is used; see installation below. Shared wording and catalogues generate both forms from `project_workflow/config.yaml` and `working_groups/`.
 
-Claiming or assigning CPP projects is deferred to a later implementation. KEY declarations and post-acceptance member editing are outside this update. Existing accepted records are preserved.
+CPP assignment now uses the separate claim form described below. KEY declarations and post-acceptance member editing remain outside this update. Existing accepted records are preserved.
+
+## Claiming a CPP
+
+Any active collaboration member can use **Claim a CPP** without repository write access or a fork. The Issue starts with title `Claim CPP`. Enter the required lead name and GitHub username, then select exactly one project in the required dropdown. Ordinary members must claim as themselves; SC can submit on another lead's behalf, as with EP submissions. Only active, accepted CPPs on main with no leads and no previous accepted claim are eligible. EP, KEY, paused, internal-review and completed projects cannot be claimed. A declaration under review is not yet eligible.
+
+The rest of the form contains optional Slack channel, main GitHub repository, related links and contributor pairs. A supplied valid Slack/repository value replaces the declaration's value; a blank or discarded invalid optional value preserves it. New links append to the original list, with duplicates removed and the schema's combined-list limit respected. There is one links list: claim edits can remove links originally supplied by SC. Valid contributors are combined without repeating usernames or the lead. Initial optional cleanup and strict atomic edit validation follow the existing submission rules. No PhD answer, scientific description, working groups or deliverables are collected.
+
+A valid submission renames its Issue and review PR to **Claim CPP: <project title>**. It updates the existing `projects/<ID>.yaml` on an Issue-scoped proposal branch, preserving project ID, status, scientific definition and original declaration provenance. Separate `claim` provenance records the claim Issue, requester, date, native-answer hash, canonical-title hash, accepted-record hash and authenticated edit receipts. Manually declared CPP records without `submission` provenance are supported. The accepted record on main is unchanged until SC merges the claim PR. Review is routed to `aguinot` during testing.
+
+Only one open claim PR is allowed per CPP. The serialized intake and independent policy validator check this live, so concurrent submissions and old form pages cannot assign the same project twice. A pending target can remain visible in the static dropdown until acceptance; a second claim is rejected with the existing claim Issue identified. Closing the claim Issue cancels its PR and removes only its verified branch. Closing just the PR also releases the reservation; SC may reopen it if no competing claim exists. Reopening an older claim while another is open triggers intake again and closes the conflicting reopened claim; independent policy validation also rejects competing claims. Cancellation or rejection leaves the accepted CPP unchanged.
+
+While both the claim Issue and PR are open, the original claimant, current proposed leads and SC can edit people, Slack, main repository and related links, subject to live organization membership. Existing add/remove commands apply, including removal by name or username; the last lead cannot be removed. The selected project stays fixed. Title, description, working-group, deliverable and PhD commands are unavailable in a claim Issue, including through nested help or replay. SC changes to the scientific definition use the existing administrative route. `/description` and `/deliverables` remain informational. After acceptance, claim commands no longer edit the accepted project.
+
+Policy checks reconstruct the exact proposed change from the accepted CPP, retained form and live comments. A claim can modify only leads, contributors, Slack, repository, related links and its claim provenance. Forged YAML, edited/deleted applied comments, label/selection/title tampering, missing records and changed requester permissions block acceptance. If SC changes the accepted target while review is pending, validation blocks the stale claim; cancel it and submit again against the updated project. Unrelated changes to main do not invalidate the target's fingerprint. Main maintenance marks pending claims for fresh independent policy checks. Require **Project policy** and an up-to-date branch under the repository's branch protection/ruleset so a stale green status cannot authorize a merge over newer main changes.
+
+### Available-project refresh
+
+**Project maintenance** regenerates the claim dropdown from the registry after main pushes, including accepted declarations, accepted claims, completion, assignment and deletion of a project record. It also handles registry changes on direct SC PRs. If main protection prevents a generated-file commit, its existing synchronization PR updates the form after review. Live submission and PR checks reject an unavailable project even before the generated dropdown catches up.
+
+Accepted claims are tracked in the project record, independently of the claim Issue or branch. Deleting the branch/Issue or later removing its leads does not automatically offer that CPP again: retain `claim` provenance. Releasing an accepted claim for another assignment is outside this workflow and would require an explicit SC administrative change. A record removed from main is absent from the dropdown; retiring it with `status: completed` is the existing supported alternative to deleting registry history. If no projects are eligible, the dropdown shows **No CPP projects available** and no claim can pass validation.
 
 ## Files and routine changes
 
@@ -51,7 +73,7 @@ Claiming or assigning CPP projects is deferred to a later implementation. KEY de
 - `project_workflow/`: parsing, validation, PR creation and generation code; optional offline behavior tests.
 - `.github/`: native GitHub forms, CODEOWNERS and two workflows.
 
-Change the authoritative source only. **Project maintenance** regenerates both native forms and CODEOWNERS after a main commit or on an SC-authored PR. On an SC PR, generation appends the outputs to that same branch. If main protection rejects an automatic generation commit, it creates a synchronization PR containing only generated outputs. The generator executes accepted main code and reads proposed configuration as data.
+Change the authoritative source only. **Project maintenance** regenerates all native forms and CODEOWNERS after a main commit or on an SC-authored PR. On an SC PR, generation appends the outputs to that same branch. If main protection rejects an automatic generation commit, it creates a synchronization PR containing only generated outputs. The generator executes accepted main code and reads proposed configuration as data.
 
 Add a working group by adding its catalogue, for example:
 
@@ -76,7 +98,7 @@ working_groups:
     deliverable_ids: []
 ```
 
-The EP form stays fixed to EP. CPP has its own SC-only declaration form. KEY records can still be managed through the existing SC YAML process; no KEY form or member claim capability is added.
+The EP form stays fixed to EP. CPP has its own SC-only declaration form. KEY records can still be managed through the existing SC YAML process; no KEY form or KEY claim capability is added.
 
 ## Workflows and permissions
 
@@ -90,7 +112,7 @@ During testing keep `reviewers: [aguinot]`. Switching that setting to `steering_
 
 ## Comment commands
 
-Post one command per comment on the submission Issue. Edits are allowed only while both the Issue and its existing review PR are open and unmerged. For EP, the original submitter, current project leads and SC members can edit, subject to live active organization membership. CPP declaration edits require live SC membership and cover only retained fields. Contributors and other active organization members can use help and information commands. These metadata roles do not grant repository write permissions.
+Post one command per comment on the submission Issue. Edits are allowed only while both the Issue and its existing review PR are open and unmerged. For EP, the original submitter, current project leads and SC members can edit, subject to live active organization membership. CPP declaration edits require live SC membership and cover only retained fields. CPP claim edits use the claimant/current-lead/SC rule and the restricted claim fields described above. Contributors and other active organization members can use help and information commands. These metadata roles do not grant repository write permissions.
 
 Use `/help`, `/edit help`, `/edit add help`, `/edit add contributor help`, or the same help pattern for any other command. Syntax and help are defined together in `project_workflow/commands.py`, the authoritative command reference. Example comments:
 
@@ -147,19 +169,26 @@ GitHub does not provide a single transaction spanning a branch, Issue and PR. A 
 
 ## Install this update
 
-This CPP declaration patch is based on main commit `4981d05af3e7eee397c45e6e450dec17a12a88d9`. Existing EP proposals, command receipts and accepted records remain valid. No new secret or workflow permission is required.
+The CPP claim patch is based on main commit `60bf25c`. Existing EP/CPP declarations, accepted records and command histories remain valid. No new secret is required. The maintenance job gains read-only Issue access to revalidate pending claims after changes to main.
 
-1. Apply the patch and review `git diff`. Publish through your usual direct-main or SC PR process.
-2. Create the CPP routing label once before using the new form (or create it through **Issues → Labels**):
+1. Apply the patch, inspect `git diff`, and publish through your usual direct-main or SC PR process.
+2. Create the claim routing label before using the form (or create it in **Issues → Labels**):
 
    ```bash
-   gh label create new-cpp-project --repo Roman-HLIS-Cosmology-PIT/PIT-projects --color 5319e7 --description "SC-only CPP declaration" --force
+   gh label create claim-cpp --repo Roman-HLIS-Cosmology-PIT/PIT-projects --color 0e8a16 --description "CPP claim for SC review" --force
    ```
 
-3. Run **Project maintenance** on current main after publication if needed. It also runs after a push and refreshes both forms and CODEOWNERS.
-4. Review routing remains `aguinot`. Test an SC declaration and an ordinary-member rejection before production.
+3. Run **Project maintenance** on current main if needed. It also runs on pushes and regenerates all forms, including availability after accepted claims or removal/retirement. Merge any generated-file synchronization PR if protection prevents a direct update.
+4. Keep reviewer routing as `aguinot` for testing. Require **Project policy** and an up-to-date branch for production merges.
 
 ## Test on GitHub
+
+- As an ordinary member, claim one accepted unassigned CPP. Confirm lead fields first, a single project dropdown, canonical Issue/PR titles, reviewer `aguinot`, original declaration metadata preserved, and main unchanged before merge.
+- Supply replacement Slack/repository values, additional links and contributors. Try blank optional fields too. Remove an SC-declared link with a claim command.
+- Try title/description/group/deliverable/PhD edits: reject without data/status changes. Add/remove co-leads and contributors; block removal of the final lead.
+- Submit two claims for one CPP. Only one PR may remain open. Cancel the first and submit a fresh claim: the reservation is released.
+- Change the accepted CPP through SC while a claim is pending. Maintenance must revalidate it; the stale claim must not overwrite the changed record. Try a removed or completed target and an old form page too.
+- Merge a claim and wait for maintenance. The target must leave the dropdown and remain unavailable after branch cleanup or subsequent removal of its leads while claim provenance is retained. Remove/retire another eligible CPP and confirm it leaves the dropdown.
 
 - Submit a CPP as an SC member. Confirm no lead/contributor/PhD form sections, correct CPP summary, empty people lists, omitted `phd_thesis`, and one review PR requesting `aguinot`.
 - Submit the same CPP form as an ordinary member. Expect an explanatory failure, `invalid`, a closed Issue, and no proposal branch/PR.

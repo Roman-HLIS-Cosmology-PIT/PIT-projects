@@ -12,7 +12,7 @@ OUTPUTS = set(FORM_PATHS.values()) | {".github/CODEOWNERS"}
 
 
 def relevant(path):
-    return path == CONFIG_PATH or path in OUTPUTS or path.startswith("working_groups/")
+    return path == CONFIG_PATH or path in OUTPUTS or path.startswith("working_groups/") or path.startswith("projects/")
 
 
 def render(ctx):

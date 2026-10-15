@@ -29,6 +29,29 @@ def project_path(issue_number):
     return f"projects/{project_id(issue_number)}.yaml"
 
 
+def record_path(record):
+    return 'projects/' + record['project_id'] + '.yaml'
+
+
+def provenance(record):
+    return (record or {}).get('claim' if 'claim' in (record or {}) else 'submission', {})
+
+
+def workflow_kind(record):
+    return 'CLAIM' if 'claim' in record else record['kind']
+
+
+def issue_project_path(issue, ctx):
+    if submission_kind(issue) == 'CLAIM':
+        from project_workflow.claims import selected_project
+        return 'projects/' + selected_project(resolved_values(issue,ctx)['claim_project']) + '.yaml'
+    return project_path(issue['number'])
+
+
+def issue_title(record):
+    return ('Claim CPP: ' + record['name'])[:256] if workflow_kind(record) == 'CLAIM' else record['name']
+
+
 def submission_branch(issue_number):
     return BRANCH_PREFIX + str(number(issue_number))
 
@@ -55,7 +78,7 @@ def labelled(issue):
 def submission_kind(issue):
     labels = submission_labels(issue)
     if len(labels) != 1:
-        raise Invalid('Keep exactly one submission label: new-project for EP or new-cpp-project for CPP')
+        raise Invalid('Keep exactly one submission label: new-project, new-cpp-project or claim-cpp')
     return next(kind for kind, label in FORM_LABELS.items() if label == labels[0])
 
 
@@ -69,7 +92,7 @@ def answers(body, ctx, kind='EP'):
         raise Invalid("Issue description is missing or too long (maximum 64 KiB)")
     labels = current_labels(ctx,kind)
     reverse = label_keys(ctx,kind)
-    excluded = set(label_keys(ctx)) - set(reverse) if kind == 'CPP' else set()
+    excluded = set(label_keys(ctx)) - set(reverse) if kind in {'CPP','CLAIM'} else set()
     found, current, fence = {}, None, None
     for line in body.replace("\r\n", "\n").splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
@@ -81,7 +104,8 @@ def answers(body, ctx, kind='EP'):
                 fence = None
         heading = re.fullmatch(r"### (.+?)\s*", line) if fence is None and not marker else None
         if heading and heading[1] in excluded:
-            raise Invalid('Lead, contributor and PhD fields are not available in CPP declarations')
+            raise Invalid('Lead, contributor and PhD fields are not available in CPP declarations' if kind == 'CPP' else
+                          'Scientific-definition and PhD fields are not available in CPP claims')
         if heading and heading[1] in reverse:
             current = reverse[heading[1]]
             if current in found:
@@ -254,6 +278,9 @@ def proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
     if not organization_member:
         raise Invalid("The Issue author must be an active organization member")
     kind = submission_kind(issue)
+    if kind == 'CLAIM':
+        from project_workflow.claims import claim_proposal
+        return claim_proposal(issue,ctx,organization_member=organization_member,is_sc=is_sc,verify_summary=verify_summary)
     if kind == 'CPP' and not is_sc:
         raise Invalid('Only SC members can declare a CPP')
     actor = issue["user"]["login"]
@@ -335,21 +362,33 @@ def changed_files(base_tree, head_tree):
 def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc, api=None, teams=None):
     if not is_submission_bot(pr['user']) or branch_issue(pr['head']['ref']) != issue['number']:
         raise Invalid('Automated PR must be authored by GitHub Actions and bound to its submission Issue')
-    path = project_path(issue['number'])
-    if path in base_tree:
+    path = issue_project_path(issue,ctx)
+    claiming = submission_kind(issue) == 'CLAIM'
+    if claiming:
+        if path not in base_tree:
+            raise Invalid('The claimed project no longer exists')
+    elif path in base_tree:
         raise Invalid('A new submission cannot overwrite an existing project ID')
     if changed_files(base_tree,head_tree) != {path}:
         raise Invalid('Automated PR may add only its single project YAML file')
     from project_workflow.project_registry import parse_yaml
     stored = parse_yaml(head_read(path))
     validate_record(stored,path,ctx)
-    if stored.get('submission',{}).get('edits'):
+    if provenance(stored).get('edits'):
         if api is None or teams is None:
             raise Invalid('Command edits require authenticated GitHub comment replay')
         from project_workflow.commands import current_record
         expected = current_record(api,issue,ctx,teams,stored)
     else:
         expected = proposal(issue,ctx,organization_member=organization_member,is_sc=is_sc)
+    if claiming:
+        from project_workflow.claims import validate_claim_change, check_reservation
+        validate_claim_change(ctx.projects[stored['project_id']],stored)
+        if api is None:
+            raise Invalid('Claim validation requires live GitHub availability checks')
+        check_reservation(api,issue,stored)
+        if issue.get('title') != issue_title(stored):
+            raise Invalid('Claim Issue title must match the selected project')
     if stored != expected:
         raise Invalid('PR data differs from the submission Issue; ask SC to inspect it')
     return expected

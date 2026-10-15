@@ -305,6 +305,8 @@ class CPPGenerationTests(unittest.TestCase):
         ctx = load_context(data.__getitem__, paths=data)
         outputs = render(ctx)
         for kind, path in FORM_PATHS.items():
+            if kind == 'CLAIM':
+                continue  # Claim forms intentionally have no scientific-definition controls.
             fields = {x['id']: x for x in yaml.safe_load(outputs[path])['body'] if 'id' in x}
             self.assertEqual(fields['deliverables_NEW']['attributes']['options'], ['NEW-1 — New deliverable'])
             self.assertEqual(fields['summary']['attributes']['description'], 'Updated science wording')

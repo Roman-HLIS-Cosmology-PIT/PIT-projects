@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: read
       statuses: write
       actions: write
     runs-on: ubuntu-24.04

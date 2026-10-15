@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 from pathlib import Path
@@ -94,6 +94,7 @@ class Context:
     working_groups: dict[str, dict]
     review_owners: tuple[str, ...]
     form_source: dict
+    projects: dict = field(default_factory=dict)
 
 
 CONFIG_PATH = "project_workflow/config.yaml"
@@ -203,7 +204,13 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
                 raise Invalid(f"Duplicate deliverable ID in {wg}")
             ids.add(item["id"])
         deliverables[wg] = ids
-    return Context(schema, policy, sc_team, deliverables, definitions, review_owners, form_source)
+    ctx = Context(schema, policy, sc_team, deliverables, definitions, review_owners, form_source)
+    for path in sorted(paths):
+        if PROJECT_PATH.fullmatch(path):
+            record = parse_yaml(read_text(path))
+            validate_record(record, path, ctx)
+            ctx.projects[record['project_id']] = record
+    return ctx
 
 
 def validate_record(record: dict, path: str, ctx: Context):
@@ -244,6 +251,10 @@ def validate_record(record: dict, path: str, ctx: Context):
         raise Invalid("Slack channel cannot be whitespace")
     if "submission" in record:
         utc_timestamp(record["submission"]["submitted_at"])
+    if 'claim' in record:
+        if record['kind'] != 'CPP':
+            raise Invalid('Only CPP records may contain claim provenance')
+        utc_timestamp(record['claim']['submitted_at'])
     url = record.get("github_url")
     if url is not None and url.rstrip("/").rsplit("/", 1)[-1] in {".", ".."}:
         raise Invalid("GitHub URL must refer to a repository")
@@ -313,6 +324,13 @@ def load_local_context(root: Path) -> Context:
         if not directory.is_dir():
             raise Invalid("working_groups/ must be a regular directory")
         paths.extend(p.relative_to(root).as_posix() for p in directory.rglob("*"))
+    projects = root / 'projects'
+    if projects.is_symlink():
+        raise Invalid('Symlinked project directories are not supported')
+    if projects.exists():
+        if not projects.is_dir():
+            raise Invalid('projects/ must be a regular directory')
+        paths.extend(p.relative_to(root).as_posix() for p in projects.rglob('*'))
     return load_context(local_reader(root), paths=paths)
 
 

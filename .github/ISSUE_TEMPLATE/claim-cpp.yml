@@ -1,0 +1,160 @@
+# Generated from project_workflow/config.yaml and working_groups/; do not edit this output.
+name: Claim a CPP
+description: Claim one accepted, unassigned Critical Path Project for SC review.
+labels:
+- claim-cpp
+body:
+- type: markdown
+  attributes:
+    value: Enter your lead details and select one CPP. Only accepted, unassigned CPPs can be claimed. Assignment
+      takes effect after SC accepts the review PR. Blank Slack or repository answers preserve existing values; related
+      links are added to the project's existing links.
+- type: input
+  id: lead
+  attributes:
+    label: Project lead name
+    description: One lead is required for submission. Additional leads can be added afterward with commands.
+  validations:
+    required: true
+- type: input
+  id: lead_github_username
+  attributes:
+    label: Project lead GitHub username
+    description: One GitHub username without @.
+  validations:
+    required: true
+- type: dropdown
+  id: claim_project
+  attributes:
+    label: CPP project to claim
+    multiple: false
+    description: Select exactly one project. Availability is checked again on submission.
+    options:
+    - P000027 — Test CPP project
+  validations:
+    required: true
+- type: input
+  id: slack_channel
+  attributes:
+    label: Slack channel
+    description: 'Optional existing channel name, such as #scm-shapes. Can be added later.'
+  validations:
+    required: false
+- type: input
+  id: github_url
+  attributes:
+    label: Main GitHub repository
+    description: Optional https://github.com/OWNER/REPOSITORY URL. Can be added later.
+  validations:
+    required: false
+- type: textarea
+  id: related_links
+  attributes:
+    label: Related links
+    description: Optional. One HTTPS URL per line. Do not include credentials or secret sharing tokens.
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '## Contributors
+
+
+      List up to five contributors, excluding the project lead. Leave unused contributor sections blank. Additional
+      contributors can be added to the project later.'
+- type: markdown
+  attributes:
+    value: '### Contributor 1 — Optional'
+- type: input
+  id: contributor_1_name
+  attributes:
+    label: Contributor 1 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_1_github_username
+  attributes:
+    label: Contributor 1 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 2 — Optional'
+- type: input
+  id: contributor_2_name
+  attributes:
+    label: Contributor 2 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_2_github_username
+  attributes:
+    label: Contributor 2 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 3 — Optional'
+- type: input
+  id: contributor_3_name
+  attributes:
+    label: Contributor 3 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_3_github_username
+  attributes:
+    label: Contributor 3 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 4 — Optional'
+- type: input
+  id: contributor_4_name
+  attributes:
+    label: Contributor 4 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_4_github_username
+  attributes:
+    label: Contributor 4 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '### Contributor 5 — Optional'
+- type: input
+  id: contributor_5_name
+  attributes:
+    label: Contributor 5 name
+    placeholder: Jane Smith
+  validations:
+    required: false
+- type: input
+  id: contributor_5_github_username
+  attributes:
+    label: Contributor 5 GitHub username
+    placeholder: janesmith
+  validations:
+    required: false
+- type: markdown
+  attributes:
+    value: '---
+
+
+      **After submitting your project, stay on the Issue page** until a new message appears with instructions for
+      the next steps.
+
+      You may need to refresh the page; this can take a few minutes.
+
+      '
+title: Claim CPP
