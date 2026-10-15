@@ -250,7 +250,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
                 api.request('PATCH','git/refs/heads/' + branch,{'sha':head_sha,'force':True})
             else:
                 api.request('POST','git/refs',{'ref':'refs/heads/' + branch,'sha':head_sha})
-        payload = {'title':('New project: ' + record['name'])[:256],
+        prefix = 'New CPP project: ' if record['kind'] == 'CPP' else 'New project: '
+        payload = {'title':(prefix + record['name'])[:256],
                    'body':proposal_body(record,ctx,api.repo,issue_number,warning)}
         had_pr = pr is not None
         if pr:

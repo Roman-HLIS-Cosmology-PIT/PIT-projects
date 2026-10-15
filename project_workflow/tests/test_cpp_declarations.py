@@ -189,7 +189,7 @@ class CPPDeclarationTests(unittest.TestCase):
         self.assertEqual(record['contributors'], [])
         self.assertNotIn('phd_thesis', record)
         self.assertEqual(self.api.issue['title'], 'Updated CPP')
-        self.assertEqual(self.api.pr['title'], 'New project: Updated CPP')
+        self.assertEqual(self.api.pr['title'], 'New CPP project: Updated CPP')
         self.assertEqual(len(self.api.prs), 1)
 
     def test_only_live_sc_can_edit_including_original_submitter(self):
