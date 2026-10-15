@@ -1,0 +1,21 @@
+schema_version: 1
+project_id: P000025
+name: Test cpp project
+kind: CPP
+status: active
+leads: []
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CPIP
+  deliverable_ids:
+  - CPI-6
+summary: This is a test CPP projects
+submission:
+  issue_number: 25
+  submitted_by: aguinot
+  submitted_at: '2026-10-15T06:33:14Z'
+  issue_title_sha256: a1b0cc35cccf0233e01031fdb7dfbc166b3260e18fa58ef2a006e00e1a08ee45
+  issue_body_sha256: 3da0acc57241b46aa06ace14b01b580f78bdb4b33fcafc66bc417e8debc03332
