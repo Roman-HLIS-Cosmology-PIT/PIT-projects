@@ -1,0 +1,27 @@
+schema_version: 1
+project_id: P000037
+name: This is a test
+kind: EP
+status: active
+leads:
+- name: Axel
+  github_username: aguigui
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CAS
+  deliverable_ids: []
+summary: Your complete Markdown description
+phd_thesis: false
+submission:
+  issue_number: 37
+  submitted_by: aguinot
+  submitted_at: '2026-10-15T22:49:26Z'
+  issue_title_sha256: c7be1ed902fb8dd4d48997c6452f5d7e509fbcdbe2808b16bcf4edce4c07d14e
+  issue_body_sha256: 71ef4138f26b4a5c365e602e442b0db11d18952573ad49d6707b952007814fa6
+  edits:
+  - comment_id: 6203943782
+    author_id: 39480528
+    body_sha256: b69764203734e81840f635a7a922f057bad2c2d61d1323c97b6530aab256c0e9
