@@ -3,10 +3,15 @@ project_id: P000027
 name: Test CPP project
 kind: CPP
 status: active
-leads: []
-contributors: []
-related_links: []
-github_url: null
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors:
+- name: Axel 2
+  github_username: aguinottest
+related_links:
+- https://github.com/aguinot/metacoadd
+github_url: https://github.com/aguinot/metacoadd
 slack_channel: null
 working_groups:
 - code: CAS
@@ -19,3 +24,10 @@ submission:
   submitted_at: '2026-10-15T06:45:26Z'
   issue_title_sha256: b094918d5e1f0481bc401cf494deb5a10ab654f71f1ca55e56bf739f88d09ad4
   issue_body_sha256: b92ec02a5e640d0a274c3a15e4adebaba295d40a08f9d53312a8d4aa93640d81
+claim:
+  issue_number: 29
+  submitted_by: aguinot
+  submitted_at: '2026-10-15T19:57:51Z'
+  issue_title_sha256: 8ef25a25f23eba3791e64232d952b8127a46e33559537c272f224ec77119685f
+  issue_body_sha256: d26f30db2f4a942f10cc0be9b0c1656b9bbd486701021a1ecac093236f9656ae
+  base_sha256: f82f047e279caa7bda5928cc63d2a514021dada416e36e0af1df78f29158ad43
