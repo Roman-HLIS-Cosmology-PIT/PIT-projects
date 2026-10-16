@@ -393,11 +393,11 @@ class CPPClaimTests(unittest.TestCase):
         self.assertEqual(self.api.dispatches[-1]['inputs']['pr_number'],'99')
 
 
-    def test_independent_policy_entry_point_publishes_success_and_failure_for_stale_main(self):
+    def test_dispatched_policy_keeps_live_registry_checks_after_unrelated_main_advance(self):
         self.submit()
         with tempfile.TemporaryDirectory() as folder:
             event = Path(folder) / 'event.json'
-            event.write_text(json.dumps({'pull_request':self.api.prs[99]}))
+            event.write_text(json.dumps({'inputs':{'operation':'validate','pr_number':'99'}}))
             env = {'GITHUB_EVENT_PATH':str(event),'GITHUB_REPOSITORY':self.api.repo,
                    'GITHUB_TOKEN':'dummy','SC_TEAM_READ_TOKEN':'dummy','POLICY_PR_NUMBER':'99'}
             with patch.dict(os.environ,env), patch.object(validate_pr,'GitHub',return_value=self.api), \
@@ -406,6 +406,15 @@ class CPPClaimTests(unittest.TestCase):
                  patch.object(validate_pr.sys,'argv',['validate_pr','--publish-status']):
                 self.assertEqual(validate_pr.main(),0)
                 self.assertEqual(self.api.statuses[-1][1],'success')
+                # Main has advanced, but the PR still has its original trusted base.
+                self.api.change_main()
+                claims.refresh_checks(self.api)
+                self.assertEqual(self.api.dispatches[-1]['inputs']['pr_number'],'99')
+                self.assertEqual(validate_pr.main(),0)
+                self.assertEqual(self.api.statuses[-1][1],'success')
+                self.api.change_main(accepted_cpp(leads=[{'name':'Jane Smith','github_username':'other'}]))
+                self.assertEqual(validate_pr.main(),1)
+                self.assertEqual(self.api.statuses[-1][1],'failure')
                 self.api.change_main(delete=True)
                 self.assertEqual(validate_pr.main(),1)
                 self.assertEqual(self.api.statuses[-1][1],'failure')
