@@ -86,6 +86,7 @@ jobs:
       pull-requests: read
       issues: read
       statuses: write
+      actions: write # Dispatch Slack only after a successful PR policy check.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -124,3 +125,46 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           POLICY_PR_NUMBER: ${{ inputs.pr_number }}
+      - name: Queue Slack sync for the validated submission PR
+        if: success() && vars.SLACK_APP_ID != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REVIEW_PR" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid review PR number"
+            exit 1
+          fi
+          pr_info="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${REVIEW_PR}" \
+            --jq '[.head.sha, .user.id, .head.ref, .state] | @tsv')"
+          IFS=$'\t' read -r head_sha author_id head_ref pr_state <<< "$pr_info"
+          if [[ "$author_id" != 41898282 || "$head_ref" != project-submissions/issue-* || "$pr_state" != open ]]; then
+            echo "No Slack submission sync needed for this PR."
+            exit 0
+          fi
+          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid proposal head SHA"
+            exit 1
+          fi
+          states="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}/status" \
+            --jq '[([.statuses[] | select(.context == "Project policy")][0].state // "missing"), ([.statuses[] | select(.context == "PIT Slack sync queued")][0].state // "missing")] | @tsv')"
+          IFS=$'\t' read -r policy_state queued_state <<< "$states"
+          if [[ "$policy_state" != success ]]; then
+            echo "::error::Current proposal head has not passed Project policy"
+            exit 1
+          fi
+          if [[ "$queued_state" == success ]]; then
+            echo "Slack sync already requested for this proposal head."
+            exit 0
+          fi
+          gh workflow run slack.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f operation=sync -f "pr_number=$REVIEW_PR"
+          # The shared submission/policy queue serializes this per-head receipt.
+          # This marks dispatch, not Slack delivery; failed delivery can always
+          # be retried with Slack project review's permanent manual sync option.
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${head_sha}" \
+            -f state=success -f 'context=PIT Slack sync queued' \
+            -f 'description=Slack synchronization requested for this proposal head' \
+            -f "target_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > /dev/null

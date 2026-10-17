@@ -1,9 +1,11 @@
 name: Slack project review
 
 on:
-  workflow_run:
-    workflows: [Project workflows]
-    types: [completed]
+  # Bot-created/edited PR events do not fire with GITHUB_TOKEN. Successful
+  # Project policy validation explicitly dispatches sync for that PR instead.
+  pull_request_target:
+    branches: [main]
+    types: [closed]
   schedule:
     - cron: '0 0 * * *' # Midnight UTC; GitHub schedules can be delayed.
   workflow_dispatch:
@@ -25,7 +27,10 @@ jobs:
     if: >-
       vars.SLACK_APP_ID != '' &&
       (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name != 'pull_request_target' ||
+       (github.event.pull_request.user.id == 41898282 &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-')))
     concurrency:
       group: project-submission-and-policy
       queue: max
@@ -50,8 +55,8 @@ jobs:
       - name: Synchronize and optionally check decisions
         run: python -m slack.bridge "$OPERATION" --pr "$REVIEW_PR"
         env:
-          OPERATION: ${{ github.event_name == 'workflow_run' && 'sync' || inputs.operation || 'check' }}
-          REVIEW_PR: ${{ inputs.pr_number }}
+          OPERATION: ${{ github.event_name == 'pull_request_target' && 'sync' || inputs.operation || 'check' }}
+          REVIEW_PR: ${{ github.event.pull_request.number || inputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           SLACK_APP_ID: ${{ vars.SLACK_APP_ID }}

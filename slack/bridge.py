@@ -76,9 +76,16 @@ class Slack:
                 expression.update(expression='#p = :p', expression_attributes={'#p': 'poll'},
                                   expression_values={':p': poll})
             result = self.command('query', store, expression)
-            if not isinstance(result, dict) or not isinstance(result.get('items'), list):
+            if (not isinstance(result, dict) or result.get('datastore') != store
+                    or result.get('ok') is False or 'error' in result):
                 raise Invalid('Incomplete Slack datastore query')
-            output.extend(result['items'])
+            # CLI 4.10.0 uses json:"items,omitempty": an empty result omits
+            # items entirely. This is normal on first installation and on
+            # filtered pages with no matches. A cursor still needs following.
+            items = result.get('items', [])
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise Invalid('Incomplete Slack datastore query')
+            output.extend(items)
             cursor = result.get('next_cursor') or result.get('response_metadata', {}).get('next_cursor', '')
             if not cursor:
                 return output

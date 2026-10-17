@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 import unittest
@@ -203,6 +204,38 @@ class BridgeTests(unittest.TestCase):
 
 
 class RulesTests(unittest.TestCase):
+    def test_cli_empty_datastore_is_not_an_incomplete_response(self):
+        # Slack CLI 4.10.0 marshals Items with json:"items,omitempty".
+        # A fresh installed app therefore returns only the datastore name.
+        slack = object.__new__(Slack)
+        slack.app, slack.team, slack.token = 'ATEST', 'TTEST', 'test-secret'
+        result = subprocess.CompletedProcess([], 0, stdout='{"datastore":"pit_projects"}\n', stderr='')
+        with patch('slack.bridge.subprocess.run', return_value=result):
+            self.assertEqual(slack.query('pit_projects'), [])
+
+    def test_cli_omitted_empty_page_does_not_hide_later_results(self):
+        slack = object.__new__(Slack)
+        slack.app, slack.team, slack.token = 'ATEST', 'TTEST', 'test-secret'
+        pages = [
+            subprocess.CompletedProcess([], 0, stdout='{"datastore":"pit_ballots","next_cursor":"page2"}', stderr=''),
+            subprocess.CompletedProcess([], 0, stdout='{"datastore":"pit_ballots","items":[{"id":"last"}]}', stderr=''),
+        ]
+        with patch('slack.bridge.subprocess.run', side_effect=pages) as command:
+            self.assertEqual(slack.query('pit_ballots', 'pr-99'), [{'id': 'last'}])
+            self.assertEqual(json.loads(command.call_args_list[1].args[0][3])['cursor'], 'page2')
+
+    def test_cli_invalid_responses_cannot_be_mistaken_for_empty_results(self):
+        slack = object.__new__(Slack)
+        for response in [None, {}, {'datastore': 'another_app_store'},
+                         {'datastore': 'pit_projects', 'items': None},
+                         {'datastore': 'pit_projects', 'items': {}},
+                         {'datastore': 'pit_projects', 'items': ['malformed']},
+                         {'datastore': 'pit_projects', 'ok': False},
+                         {'datastore': 'pit_projects', 'error': 'access_denied'}]:
+            with self.subTest(response=response), patch.object(slack, 'command', return_value=response):
+                with self.assertRaises(Invalid):
+                    slack.query('pit_projects')
+
     def test_shared_rule_cases(self):
         cases = json.loads(Path(__file__).with_name('cases.json').read_text())
         for case in cases:
@@ -224,7 +257,8 @@ class RulesTests(unittest.TestCase):
     def test_cli_pagination_uses_top_level_next_cursor_even_on_empty_page(self):
         slack = object.__new__(Slack)
         with patch.object(slack, 'command', side_effect=[
-            {'items': [], 'next_cursor': 'page2'}, {'items': [{'id': 'x'}]}]) as command:
+            {'datastore': 'pit_ballots', 'items': [], 'next_cursor': 'page2'},
+            {'datastore': 'pit_ballots', 'items': [{'id': 'x'}]}]) as command:
             self.assertEqual(slack.query('pit_ballots', 'pr-99'), [{'id': 'x'}])
             self.assertEqual(command.call_args_list[1].args[2]['cursor'], 'page2')
 
