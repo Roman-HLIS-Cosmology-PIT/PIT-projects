@@ -1,0 +1,21 @@
+schema_version: 1
+project_id: P000047
+name: CPP test 2
+kind: CPP
+status: active
+leads: []
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CPIP
+  deliverable_ids:
+  - CPI-6
+summary: this is a test CPP 2
+submission:
+  issue_number: 47
+  submitted_by: aguinot
+  submitted_at: '2026-10-17T05:12:27Z'
+  issue_title_sha256: 4cb3656a94cf1773965d02792842a36903133bd12889d2c204f7dbeed60b9bc3
+  issue_body_sha256: be017edbd654d8f1dbaa335baec79d48c8edc57f75d9427b2c797f7639fd8c1f
