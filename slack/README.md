@@ -34,6 +34,31 @@ git apply /path/to/pit-slack-review.patch
 
 Review and merge these changes into main through your normal process. Workflow dispatches and the schedule use main. All app and bridge implementation lives in `slack/`; `.github/workflows/slack.yml` is the Actions entry point. The existing project workflows are not replaced. Before configuring `SLACK_APP_ID`, the new Actions job skips automatically.
 
+## Updating an already installed app
+
+Use this section when PIT Projects is already installed. Do not repeat the dummy-app deletion or create another app or duplicate triggers.
+
+From the root of your local PIT-projects checkout, after downloading the incremental patch to `~/Downloads`:
+
+```sh
+git apply --check ~/Downloads/pit-slack-direct-buttons.patch
+git apply ~/Downloads/pit-slack-direct-buttons.patch
+cd slack
+deno task check
+deno task test
+slack deploy --app A_NEW_APP_ID --team T_WORKSPACE_ID
+```
+
+Use your existing PIT Projects app/workspace IDs. Keep your configured `channel.ts`; this patch does not change its channel ID, name or test controls. Commit and push the changed `slack/` files through your usual GitHub process. No GitHub Actions YAML, secrets, webhook URLs, datastores, or existing sync/command trigger definitions change in this update.
+
+Submit a **new dummy EP or CPP claim** to test direct buttons. Its initial synchronization leaves one custom function pending to keep the ordinary buttons alive ([Slack's documented pattern](https://docs.slack.dev/tools/deno-slack-sdk/guides/creating-an-interactive-message/)). Each click handles the existing function's Block Actions event; it does not launch another workflow. GitHub still receives the normal delivery acknowledgement immediately. Later valid edits and nightly/manual checks update the same root, while the original interaction stays pending. A terminal GitHub synchronization removes its buttons and attempts to complete that pending execution. A pending run in Slack activity during voting is expected.
+
+**Existing test messages:** their former sync function already completed, so this patch preserves their old workflow buttons, votes and threads rather than attaching ordinary buttons to a dead execution. They may still show Slack's access popup. Finish/close those tests and use a new submission to test the new UI. A manual `sync` updates their spacing but does not migrate their button execution. Do not delete root receipts or clear datastores to force a conversion. Already-posted duplicate replies are preserved; this patch prevents future initial duplicates. You can remove an old duplicate reply using Slack's Delete message action if your workspace permissions allow it.
+
+Keep `triggers/vote.ts`, its deployed trigger, channel access and `VOTE_TRIGGER_URL` while any old polls remain open. They are compatibility-only; new polls never use them. When all old tests finish, you may delete **only that recorded vote trigger** using `slack trigger delete --trigger-id Ft_VOTE_TRIGGER_ID --app A_NEW_APP_ID --team T_WORKSPACE_ID`; keep the sync and command triggers. Removing the compatibility source is optional and unnecessary for the new behavior.
+
+After deploying, verify in `test-pit-projects`: two different channel members can click buttons with no workflow access dialog; the root counts update; a valid edit posts one reply and the new buttons still work; a manual GitHub check updates the root; `!force-accept`/`!force-refuse` still dispatch immediately. These need a real Slack workspace; local SDK tests do not verify Slack's deployed interaction lifecycle or permissions.
+
 ## 3. Configure the private test channel and deploy
 
 Open **test-pit-projects → channel name → About** and copy its channel ID. The channel must be private and unshared. Edit `slack/channel.ts`, replacing `CHANNEL_ID` with that ID. Keep `CHANNEL_NAME = "test-pit-projects"` and `TEST_BUTTONS = true` for now. Never put a channel name in place of the ID.
@@ -53,31 +78,20 @@ Select your workspace when prompted. This creates the new **PIT Projects** app, 
 
 Invite **PIT Projects** to `test-pit-projects` using the channel's Integrations → Add apps. Only that configured channel receives proposals. Inviting the app elsewhere does not enable votes or notifications there.
 
-## 4. Create the three triggers once
+## 4. Create the two triggers once
 
 Run these from `slack/`, substituting the new app/workspace IDs:
 
 ```sh
-slack trigger create --trigger-def triggers/vote.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID
 slack trigger create --trigger-def triggers/sync.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID
 slack trigger create --trigger-def triggers/commands.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID
 ```
 
-Record all three trigger IDs. Keep the **vote shortcut URL** (`https://slack.com/shortcuts/...`) and the **sync webhook URL** (`https://hooks.slack.com/triggers/...`). Treat the webhook URL as a secret. Do not add these URLs to source control, issues or logs.
+Record both trigger IDs and keep the **sync webhook URL** (`https://hooks.slack.com/triggers/...`) secret. Do not add it to source control, issues or logs. New installations do not need a vote shortcut trigger, trigger access grants, or `VOTE_TRIGGER_URL`. Members click ordinary message buttons directly, as in the dummy app; voting does not launch a workflow or request workflow access. The app checks the actual interaction channel, original message timestamp, owning function execution and current proposal revision. Inviting it to another channel does not authorize votes there.
 
-Grant members of the private test channel access to the vote trigger:
-
-```sh
-slack trigger access --trigger-id Ft_VOTE_TRIGGER_ID --grant --channels C_TEST_CHANNEL_ID --app A_NEW_APP_ID --team T_WORKSPACE_ID
-slack trigger access --trigger-id Ft_VOTE_TRIGGER_ID --info --app A_NEW_APP_ID --team T_WORKSPACE_ID
-```
-
-Use the actual copied channel ID, including its original prefix. Do not grant everyone access. The app also checks the actual interaction channel, original message timestamp and current proposal revision; editable button parameters are not authorization.
-
-Set the vote URL on the deployed app. These commands prompt for values, avoiding secrets in shell history:
+Set the dispatch token on the deployed app. This command prompts for its value, avoiding a secret in shell history:
 
 ```sh
-slack env set VOTE_TRIGGER_URL --app A_NEW_APP_ID --team T_WORKSPACE_ID
 slack env set GITHUB_DISPATCH_TOKEN --app A_NEW_APP_ID --team T_WORKSPACE_ID
 ```
 
@@ -113,7 +127,7 @@ Ensure Actions can create/update project PRs as already required by this reposit
 
 ## 6. Test the integration
 
-1. Submit a valid EP through the existing form. After the PR's **Validate project policy** job succeeds, it queues **Slack project review** with operation `sync` for that PR. Expect one root message headed **🟠 Waiting**, type **New EP**, title, working groups, leads, contributors, description and review PR link. A full snapshot appears in its thread. Very long root fields are shortened to fit Slack; full text is split across thread messages without truncation.
+1. Submit a valid EP through the existing form. After the PR's **Validate project policy** job succeeds, it queues **Slack project review** with operation `sync` for that PR. Expect one root message headed **🟠 Waiting**, type **New EP**, title, working groups, leads, contributors, description and review PR link. No initial thread reply is posted. Project fields use consecutive lines, with a single blank line before the votes. Exceptionally long root fields are explicitly shortened with a link to the full PR; valid subsequent edits still post their full text in the thread.
 2. Submit a CPP declaration: no Slack message. A subsequent valid claim on an accepted, available CPP produces its own **CPP claim** message.
 3. Click Accept, Refuse or Abstain. The original message updates its tally. A new choice replaces your previous ballot; simultaneous voters use separate event records. Use Refresh if concurrent display updates briefly show an older tally. Decisions use stored events, never the displayed count.
 4. Try **TEST: Accept quorum**, **TEST: Refuse quorum**, and **TEST: Abstain quorum** on separate test proposals. Each sets that option to the current quorum and the other counts to zero, with a visible TEST label. A later real vote clears the simulation and restores the real ballots. **These test counts can merge or close the real test PR at the next check.** Abstain quorum remains waiting.
@@ -143,7 +157,7 @@ Automatic Slack notifications follow successful **PR policy validation**, throug
 - Rotate `SLACK_SERVICE_TOKEN`, `SLACK_SYNC_WEBHOOK` (recreate only its trigger), and `GITHUB_DISPATCH_TOKEN` when needed. Revoke obsolete credentials. The installed Deno/CLI versions are pinned in `slack/install-cli.sh`; update and recheck them together with the SDK imports. The Linux CLI archive is checksum-verified.
 - To pause integration, clear the GitHub variable `SLACK_APP_ID` and disable/delete this app's command trigger by its recorded ID. To retire the new app, use `slack app delete` with **its** explicit ID/workspace as in step 1. This never calls deletion against another app.
 
-Before moving to the real SC channel: finish pending tests; set `TEST_BUTTONS = false` in `channel.ts` and GitHub variable `SLACK_TEST_BUTTONS=false`; change the channel ID in both places; deploy; update the command trigger's channel and the vote trigger's channel access. Existing test polls cannot be silently rerouted because their channel is bound in stored metadata. Close/finish test submissions first. Ordinary updates in the same channel reuse the app, triggers, datastores and original messages.
+Before moving to the real SC channel: finish pending tests; set `TEST_BUTTONS = false` in `channel.ts` and GitHub variable `SLACK_TEST_BUTTONS=false`; change the channel ID in both places; deploy; update the command trigger's channel. For legacy polls only, update the old vote trigger's channel access if retaining it. Existing test polls cannot be silently rerouted because their channel is bound in stored metadata. Close/finish test submissions first. Ordinary updates in the same channel reuse the app, triggers, datastores and original messages.
 
 ## Local checks
 

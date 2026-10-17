@@ -5,28 +5,23 @@ const section = (text: string) => ({
   type: "section",
   text: { type: "mrkdwn", text },
 });
-export function snapshot(project: Project) {
-  // Escape submitted text: no @channel, user mentions or attacker-controlled links.
+function information(project: Project) {
+  const field = (label: string, value: string) =>
+    `*${label}:* ${escape(value).trim().replace(/\n\s*\n/g, "\n")}`;
   return [
-    section(
-      `*${
-        project.kind === "EP" ? "New EP" : "CPP claim"
-      }* · <https://github.com/${project.repo}/pull/${project.pr}|Review PR #${project.pr}>`,
-    ),
-    ...[
-      ["Project title", project.title],
-      ["Working Group", project.groups],
-      ["Lead(s)", project.leads],
-      ["Other active contributors", project.contributors],
-      ["Project description", project.description],
-    ].flatMap(([label, value]) =>
-      chunks(escape(value)).map((part, i) =>
-        section(`${i === 0 ? `*${label}:*\n` : ""}${part}`)
-      )
-    ),
-  ];
+    `*${project.kind === "EP" ? "New EP" : "CPP claim"}*`,
+    field("Project title", project.title),
+    field("Working Group", project.groups),
+    field("Lead(s)", project.leads),
+    field("Other active contributors", project.contributors),
+    field("Project description", project.description),
+    `*PR:* <https://github.com/${project.repo}/pull/${project.pr}|Review PR #${project.pr}>`,
+  ].join("\n");
 }
-export function blocks(project: Project, events: Ballot[], url: string) {
+export function snapshot(project: Project) {
+  return chunks(information(project)).map(section);
+}
+export function blocks(project: Project, events: Ballot[], legacyUrl?: string) {
   const count = tally(project, events);
   const status = {
     waiting: "🟠 Waiting",
@@ -35,48 +30,57 @@ export function blocks(project: Project, events: Ballot[], url: string) {
     refused: "🔴 Refused",
   }[project.status];
   const button = (action: string, label: string) => ({
-    type: "workflow_button",
+    type: legacyUrl ? "workflow_button" : "button",
     text: { type: "plain_text", text: label },
     action_id: action,
-    workflow: {
-      trigger: {
-        url,
-        customizable_input_parameters: [
-          { name: "poll", value: project.id },
-          { name: "revision", value: project.revision },
-          { name: "action", value: action },
-        ],
-      },
-    },
+    ...(legacyUrl
+      ? {
+        workflow: {
+          trigger: {
+            url: legacyUrl,
+            customizable_input_parameters: [
+              { name: "poll", value: project.id },
+              { name: "revision", value: project.revision },
+              { name: "action", value: action },
+            ],
+          },
+        },
+      }
+      : {
+        value: JSON.stringify({ poll: project.id, revision: project.revision }),
+      }),
   });
-  // Slack caps a message at 50 blocks. The full snapshot is always delivered
-  // in the thread; root fields are shortened only for exceptionally long text.
-  const shorten = (text: string) =>
-    Array.from(text).length > 6000
-      ? Array.from(text).slice(0, 6000).join("") +
-        "\n[Continued in the project information thread]"
-      : text;
+  // Keep the first notification entirely in the channel. Exceptionally long
+  // fields have an explicit PR continuation, never an automatic initial reply.
+  const shorten = (text: string, limit: number) => {
+    let length = 0;
+    let result = "";
+    for (const character of text) {
+      length += escape(character).length;
+      if (length > limit) return result + "… [Full text in the PR]";
+      result += character;
+    }
+    return result;
+  };
   const preview = {
     ...project,
-    groups: shorten(project.groups),
-    leads: shorten(project.leads),
-    contributors: shorten(project.contributors),
-    description: shorten(project.description),
+    title: shorten(project.title, 500),
+    groups: shorten(project.groups, 1000),
+    leads: shorten(project.leads, 1000),
+    contributors: shorten(project.contributors, 1000),
+    description: shorten(project.description, 12000),
   };
-  const result = [
-    section(`*${status}*`),
-    ...snapshot(preview),
-    section(
-      `*Votes:* Accept ${count.accept} · Refuse ${count.refuse} · Abstain ${count.abstain}\n` +
-        `*Participation:* ${count.participation}/${project.members} · *Quorum:* ${project.quorum}\n` +
-        (count.simulation
-          ? "*TEST: synthetic quorum; the next real vote restores real ballots.*\n"
-          : "") +
-        (count.force ? `*Override requested:* ${count.force}\n` : "") +
-        "Abstentions count toward quorum. Ties and abstention-only votes remain waiting.",
-    ),
-  ];
-  if (project.note) result.push(section(escape(project.note)));
+  const text = `*${status}*\n${information(preview)}\n\n` +
+    `*Votes:* Accept ${count.accept} · Refuse ${count.refuse} · Abstain ${count.abstain}\n` +
+    `*Participation:* ${count.participation}/${project.members} · *Quorum:* ${project.quorum}\n` +
+    (count.simulation
+      ? "*TEST: synthetic quorum; the next real vote restores real ballots.*\n"
+      : "") +
+    (count.force ? `*Override requested:* ${count.force}\n` : "") +
+    "Abstentions count toward quorum. Ties and abstention-only votes remain waiting." +
+    (project.note ? `\n${escape(project.note)}` : "");
+  // Short projects use one text block: Slack adds no gaps between their fields.
+  const result = chunks(text).map(section);
   if (project.status === "waiting") {
     result.push(
       {

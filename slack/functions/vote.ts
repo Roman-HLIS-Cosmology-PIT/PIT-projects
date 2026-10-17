@@ -37,7 +37,20 @@ export const Vote = DefineFunction({
     ],
   },
 });
-export default SlackFunction(Vote, async ({ inputs, client, env }) => {
+export async function castVote(
+  inputs: {
+    poll: string;
+    revision: string;
+    action: string;
+    channel: string;
+    user: string;
+    message: string;
+    stamp: string;
+    interactivity: { interactivity_pointer: string };
+  },
+  client: import("deno-slack-api/types.ts").SlackAPIClient,
+  env: Record<string, string>,
+) {
   try {
     if (inputs.channel !== CHANNEL_ID) {
       throw new Error("Voting is restricted to the configured SC channel");
@@ -90,4 +103,9 @@ export default SlackFunction(Vote, async ({ inputs, client, env }) => {
   } catch (error) {
     return { error: String(error) };
   }
-});
+}
+// Compatibility for messages sent before direct buttons were deployed.
+export default SlackFunction(
+  Vote,
+  ({ inputs, client, env }) => castVote(inputs, client, env),
+);
