@@ -1,0 +1,23 @@
+schema_version: 1
+project_id: P000049
+name: Test new
+kind: EP
+status: active
+leads:
+- name: AG
+  github_username: aguinot
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CPIP
+  deliverable_ids: []
+summary: Test
+phd_thesis: false
+submission:
+  issue_number: 49
+  submitted_by: aguinot
+  submitted_at: '2026-10-17T06:09:17Z'
+  issue_title_sha256: a9e2e50dc45024044cfc3b3b885f56302b84ee140d9cd6ef93bac56fb8fc4035
+  issue_body_sha256: 0464ae84b7575d040ad3262ff74a6bba7c70666fc2c5ddb907a4f7e0fdf53d25
