@@ -54,6 +54,9 @@ jobs:
        github.event.pull_request.user.id == 41898282 &&
        startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-')) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'submit')
+    outputs:
+      pr_number: ${{ steps.submission.outputs.pr_number }}
+      slack_review: ${{ steps.submission.outputs.slack_review }}
     concurrency:
       group: project-submission-and-policy
       queue: max
@@ -79,13 +82,36 @@ jobs:
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           SUBMISSION_ISSUE_NUMBER: ${{ inputs.issue_number }}
           POLICY_INLINE: 'true'
-      - name: Independently validate the submitted PR
-        if: steps.submission.outputs.pr_number != ''
+
+  notify:
+    name: Slack delivery after successful submission
+    needs: submit
+    if: >-
+      needs.submit.outputs.pr_number != '' &&
+      (needs.submit.outputs.slack_review == 'true' || needs.submit.outputs.slack_review == 'false')
+    concurrency:
+      group: project-submission-and-policy
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Queue delivery for the prevalidated submission
         uses: ./project_workflow/policy
         with:
-          pr_number: ${{ steps.submission.outputs.pr_number }}
+          pr_number: ${{ needs.submit.outputs.pr_number }}
           sc_team_read_token: ${{ secrets.SC_TEAM_READ_TOKEN }}
           slack_app_id: ${{ vars.SLACK_APP_ID }}
+          prevalidated_review: ${{ needs.submit.outputs.slack_review || 'missing' }}
 
   validate:
     name: Validate project policy

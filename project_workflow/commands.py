@@ -334,7 +334,7 @@ def confirmation(key):
     return '**'+key.capitalize()+' confirmed.**'
 
 
-def process(api, teams, issue_number, event_comment, *, action='created'):
+def process(api, teams, issue_number, event_comment, *, action='created', trusted_base=None):
     """Handle one comment. Rejected edits never touch the proposal or its status."""
     from project_workflow.issue_intake import associated_pr, branch_snapshot, feedback, process as submit
     from project_workflow.project_registry import load_context, parse_yaml
@@ -371,6 +371,8 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         if command is None:return 'ignored'
         if teams is None:raise Invalid('Membership access is unavailable; ask SC to fix the automation.')
         base_sha=api.get('git/ref/heads/main')['object']['sha']
+        if trusted_base is not None and base_sha != trusted_base:
+            raise Invalid('Main changed after trusted checkout; rerun this workflow.')
         base_tree=api.tree(base_sha)
         read=api.reader(base_tree)
         ctx=load_context(read,paths=base_tree)
@@ -421,7 +423,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         if applied:
             if receipt(comment)!=applied:raise Invalid('An applied command was modified; it cannot be reused.')
             staged=True
-            result=submit(api,teams,issue_number,command_sync=True)
+            result=submit(api,teams,issue_number,command_sync=True,trusted_base=trusted_base)
             if result not in {'created','updated'}:raise Invalid('The edit could not finish synchronization.')
             feedback(api,issue_number,confirmation(key)+' The Issue summary and the same PR are synchronized.',marker=marker)
             return 'replayed'
@@ -472,7 +474,7 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
         # Synchronization is idempotent; retry without applying the edit again.
         for attempt in range(3):
             try:
-                result=submit(api,teams,issue_number,command_sync=True)
+                result=submit(api,teams,issue_number,command_sync=True,trusted_base=trusted_base)
                 break
             except (Invalid,OSError,ValueError,KeyError,TypeError):
                 if attempt==2:raise

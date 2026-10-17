@@ -362,6 +362,12 @@ def changed_files(base_tree, head_tree):
 def validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx, *, organization_member, is_sc, api=None, teams=None):
     if not is_submission_bot(pr['user']) or branch_issue(pr['head']['ref']) != issue['number']:
         raise Invalid('Automated PR must be authored by GitHub Actions and bound to its submission Issue')
+    return validate_submission_snapshot(base_tree, head_tree, base_read, head_read, issue, ctx,
+        organization_member=organization_member, is_sc=is_sc, api=api, teams=teams)
+
+
+def validate_submission_snapshot(base_tree, head_tree, base_read, head_read, issue, ctx, *, organization_member, is_sc, api=None, teams=None):
+    """Validate the exact proposed data before publishing a PR, or on later checks."""
     path = issue_project_path(issue,ctx)
     claiming = submission_kind(issue) == 'CLAIM'
     if claiming:

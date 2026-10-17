@@ -5,6 +5,7 @@ import base64
 import html
 import zlib
 import re
+import urllib.error
 from urllib.parse import quote
 
 
@@ -34,6 +35,9 @@ def link(url):
 
 
 def request_review(api, pr, ctx):
+    # Creation/PATCH responses can precede GitHub's CODEOWNERS assignments.
+    # Refresh before adding reviewers so an automatic request is not duplicated.
+    pr = api.get(f"pulls/{pr['number']}")
     requested_users = {p["login"].lower() for p in pr.get("requested_reviewers", [])}
     requested_teams = {t["slug"].lower() for t in pr.get("requested_teams", [])}
     desired_users = {x[1:].lower() for x in ctx.review_owners if "/" not in x}
@@ -55,7 +59,20 @@ def request_review(api, pr, ctx):
         elif owner.lower() != pr["user"]["login"].lower() and owner.lower() not in requested_users:
             users.append(owner)
     if users or teams:
-        api.request("POST", f"pulls/{pr['number']}/requested_reviewers", {"reviewers": users, "team_reviewers": teams})
+        try:
+            api.request("POST", f"pulls/{pr['number']}/requested_reviewers", {"reviewers": users, "team_reviewers": teams})
+        except urllib.error.HTTPError as exc:
+            if exc.code != 422:
+                raise
+            # A concurrent CODEOWNERS assignment (or a response lost after the
+            # write) may leave the exact desired state despite a 422 response.
+            # Only confirmed assignments are success; genuine failures still block.
+            current = api.get(f"pulls/{pr['number']}")
+            current_users = {p['login'].lower() for p in current.get('requested_reviewers', [])}
+            current_teams = {t['slug'].lower() for t in current.get('requested_teams', [])}
+            if (not {user.lower() for user in users} <= current_users or
+                    not {team.lower() for team in teams} <= current_teams):
+                raise
 
 
 def summary_body(record, ctx):

@@ -16,9 +16,9 @@ import urllib.request
 from project_workflow.project_registry import Invalid, load_context
 from project_workflow.submission import (
     changed_files, is_submission_bot, issue_version, labelled, provenance, workflow_kind, record_path, issue_title,
-    number, project_path, project_yaml, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values,
+    number, project_path, project_yaml, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values, validate_submission_snapshot,
 )
-from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
+from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, http_error_message, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
 from project_workflow.review import proposal_body, request_review, safe_text, formatted_issue_body
 from project_workflow.project_registry import parse_yaml, validate_record
@@ -228,7 +228,7 @@ def set_invalid(api, issue, invalid):
         api.request('DELETE',f"issues/{issue['number']}/labels/invalid")
 
 
-def process(api, teams, issue_number, *, repo_check=repository_warning, command_sync=False):
+def process(api, teams, issue_number, *, repo_check=repository_warning, command_sync=False, trusted_base=None):
     issue = api.get(f'issues/{number(issue_number)}')
     if issue.get('pull_request'):
         return 'ignored'
@@ -252,12 +252,17 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if teams is None:
             raise Invalid('SC must configure the SC_TEAM_READ_TOKEN Actions secret')
         base_sha = api.get('git/ref/heads/main')['object']['sha']
+        if trusted_base is not None and base_sha != trusted_base:
+            raise OSError('Main changed after trusted checkout; rerun this workflow')
         base_tree = api.tree(base_sha)
         read = api.reader(base_tree)
         ctx = load_context(read,paths=base_tree)
         records(base_tree,read,ctx)
         if ctx.sc_team[0].lower() != api.repo.split("/", 1)[0].lower():
             raise Invalid("SC team must belong to this repository's organization")
+        if any('/' in owner and owner[1:].split('/', 1)[0].lower() != api.repo.split('/')[0].lower()
+               for owner in ctx.review_owners):
+            raise Invalid("Review teams must belong to this repository's organization")
         from project_workflow.commands import current_record
         old_sha, old_commit, old_record = branch_snapshot(api,issue)
         record = current_record(api,issue,ctx,teams,old_record,allow_previous=True)
@@ -312,9 +317,17 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
             commit = api.request('POST','git/commits',{'message':f'Project submission {issue_number}',
                 'tree':tree['sha'],'parents':[base_sha]})
             head_sha = commit['sha']
-            fresh(api,issue,base_sha,ctx,teams)
-            api.status(head_sha,'pending','Checking proposal policy')
-            branch = submission_branch(issue_number)
+        head_tree = api.tree(head_sha)
+        head_read = api.reader(head_tree)
+        actor = issue['user']['login']
+        validated = validate_submission_snapshot(base_tree, head_tree, read, head_read, issue, ctx,
+            organization_member=teams.is_org_member(ctx.sc_team[0], actor),
+            is_sc=teams.is_active_member(*ctx.sc_team, actor), api=api, teams=teams)
+        records(head_tree, head_read, ctx)
+        if validated != record or fresh(api,issue,base_sha,ctx,teams) != record:
+            raise Invalid('Submission changed during pre-publication policy validation; retry')
+        branch = submission_branch(issue_number)
+        if old_sha != head_sha:
             if old_sha:
                 if api.get('git/ref/heads/' + branch)['object']['sha'] != old_sha:
                     raise Invalid('Submission branch advanced; retry')
@@ -324,28 +337,35 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         prefix = 'Claim CPP: ' if workflow_kind(record) == 'CLAIM' else 'New CPP project: ' if record['kind'] == 'CPP' else 'New project: '
         payload = {'title':(prefix + record['name'])[:256],
                    'body':proposal_body(record,ctx,api.repo,issue_number,warning)}
+        # All submission checks and required writes finish before publication.
+        # A failed preflight never calls POST /pulls. Review/notification delivery
+        # after publication has its own retry path and cannot reject a submission.
+        api.status(head_sha,'success','Current proposal and requester permissions passed')
+        set_invalid(api,issue,False)
+        if os.environ.get('POLICY_INLINE') == 'true':
+            # Check the local delivery handoff before creating a public PR.
+            with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8'):
+                pass
+        feedback(api,issue_number,'**Submission checks passed.** Publishing the review proposal. '
+                 'If publication is interrupted, ask SC to retry this Issue; an existing PR will be reused.')
+        if (fresh(api,issue,base_sha,ctx,teams) != record
+                or api.get('git/ref/heads/' + branch)['object']['sha'] != head_sha):
+            raise Invalid('Submission changed before PR publication; retry')
         had_pr = pr is not None
         if pr and any(pr.get(key) != value for key, value in payload.items()):
             pr = api.request('PATCH',f"pulls/{pr['number']}",payload)
         elif pr is None:
-            pr = api.request('POST','pulls',{**payload,'head':submission_branch(issue_number),'base':'main'})
-        request_review(api,pr,ctx)
-        dispatch_validation(api,pr['number'])
-        set_invalid(api,issue,False)
-        heading = '**Your CPP claim has been submitted.**' if workflow_kind(record) == 'CLAIM' else '**Your project has been submitted.**'
-        message = heading + ' [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
-        if not issue['body'].startswith(FORMATTED_MARKER):
-            message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
-        message += '\nEntries can be edited using commands. Comment `/help` or `/edit help` to see the available options.\n'
-        if removed:
-            message += '\n**The following optional entries were removed:**\n\n' + '\n'.join('- ' + safe_text(x) for x in removed)
-            message += '\n\nThese details can be added with commands; use `/edit help` for the options.\n'
-        if warning:
-            message += '\n**Note:** ' + safe_text(warning)
-        if len(message) > 64000:
-            message = message[:63000] + '\n\n*Summary shortened; the full submission remains in this Issue and the project YAML.*'
-        feedback(api,issue_number,message)
-        return 'updated' if had_pr else 'created'
+            try:
+                pr = api.request('POST','pulls',{**payload,'head':branch,'base':'main'})
+            except OSError:
+                # GitHub may have accepted the write before its response was lost.
+                # Reconcile the uniquely reserved branch instead of reporting a
+                # failed submission or posting a duplicate PR on retry.
+                pr = associated_pr(api,issue_number)
+                if (pr is None or pr.get('state') != 'open'
+                        or pr['head']['sha'] != head_sha or pr['base']['sha'] != base_sha):
+                    raise
+
     except Invalid as exc:
         if command_sync:
             raise  # A command synchronization failure must never close the submission.
@@ -362,6 +382,37 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         feedback(api,issue_number,message[:63000] + '\n' + CANCEL_MARKER)
         cancel_submission(api,closed)
         return 'invalid'
+
+    heading = '**Your CPP claim has been submitted.**' if workflow_kind(record) == 'CLAIM' else '**Your project has been submitted.**'
+    message = heading + ' [View the pull request](https://github.com/' + api.repo + f"/pull/{pr['number']}).\n\nOnce the project has been reviewed and accepted, you will be notified.\n"
+    if not issue['body'].startswith(FORMATTED_MARKER):
+        message += 'The submission is too long to reformat within GitHub’s Issue size limit; the complete original answers are retained.\n'
+    message += '\nEntries can be edited using commands. Comment `/help` or `/edit help` to see the available options.\n'
+    if removed:
+        message += '\n**The following optional entries were removed:**\n\n' + '\n'.join('- ' + safe_text(x) for x in removed)
+        message += '\n\nThese details can be added with commands; use `/edit help` for the options.\n'
+    if warning:
+        message += '\n**Note:** ' + safe_text(warning)
+    if len(message) > 64000:
+        message = message[:63000] + '\n\n*Summary shortened; the full submission remains in this Issue and the project YAML.*'
+    pending = []
+    def deliver(stage, operation):
+        try:
+            operation()
+        except (OSError, Invalid, ValueError, KeyError, TypeError) as exc:
+            pending.append(stage)
+            detail = http_error_message(exc) if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
+            print(f'::warning::Submission published; {stage} needs retry ({detail}).', file=sys.stderr)
+
+    deliver('reviewer assignment', lambda: request_review(api,pr,ctx))
+    deliver('review routing', lambda: dispatch_validation(api,pr['number'],
+        slack_review=workflow_kind(record) in {'EP','CLAIM'}))
+    if pending:
+        message += ('\n\n**Submitted successfully; follow-up delivery needs retry:** '
+                    + ', '.join(pending) + '. Ask SC to rerun Project workflows with operation '
+                    '`submit` and this Issue number. The existing PR will be reused.')
+    deliver('Issue confirmation', lambda: feedback(api,issue_number,message))
+    return 'updated' if had_pr else 'created'
 
 
 def main():
@@ -392,19 +443,20 @@ def main():
         teams = TeamDirectory(os.environ['SC_TEAM_READ_TOKEN']) if os.environ.get('SC_TEAM_READ_TOKEN') else None
         if event.get('comment'):
             from project_workflow.commands import process as command_process
-            result = command_process(api,teams,issue_number,event['comment'],action=event.get('action','created'))
+            result = command_process(api,teams,issue_number,event['comment'],action=event.get('action','created'),trusted_base=checkout)
         else:
-            result = process(api,teams,issue_number)
+            result = process(api,teams,issue_number,trusted_base=checkout)
         print(json.dumps({'issue':issue_number,'result':result}))
         return 1 if result == 'incomplete' else 0
     except (urllib.error.HTTPError,Invalid,OSError,ValueError,KeyError,TypeError) as exc:
-        print(json.dumps({'error':f'GitHub API error (HTTP {exc.code})' if isinstance(exc,urllib.error.HTTPError) else 'Submission automation could not complete'}),file=sys.stderr)
+        print(json.dumps({'error':http_error_message(exc) if isinstance(exc,urllib.error.HTTPError) else 'Submission automation could not complete'}),file=sys.stderr)
         if api is not None and issue_number is not None:
             try:
                 pr = associated_pr(api,issue_number)
                 if pr and pr['state'] == 'open':
-                    api.status(pr['head']['sha'],'failure','Automation failed; SC must inspect the workflow')
-                feedback(api,issue_number,'**Submission automation could not complete.** Ask SC to inspect the failed Actions run and retry. No proposal is approved.')
+                    feedback(api,issue_number,'**A submission PR exists, but automation could not confirm completion.** Ask SC to inspect the Actions run and retry this Issue; the existing PR will be reused. No project is approved.')
+                else:
+                    feedback(api,issue_number,'**Submission automation could not complete before PR publication.** Ask SC to inspect the failed Actions run and retry. No project is approved.')
             except (OSError,ValueError,Invalid,KeyError):
                 pass
         return 1

@@ -1,4 +1,4 @@
-"""Exercise intake -> independent policy without a second workflow dispatch."""
+"""Exercise pre-publication policy and a separate notification handoff."""
 from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 import base64
@@ -43,12 +43,11 @@ class PipelineTests(unittest.TestCase):
                  patch.object(sys, 'argv', ['validate_pr', '--publish-status']), \
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(issue_intake.main(), 0)
-                self.assertEqual(output.read_text(), 'pr_number=99\n')
-                os.environ['POLICY_PR_NUMBER'] = '99'
-                result = validate_pr.main()
+                result = 0
+                self.assertTrue(output.read_text().startswith('pr_number=99\nslack_review='))
             return result, output.read_text()
 
-    def test_ep_cpp_and_claim_have_one_inline_policy_and_correct_slack_routing(self):
+    def test_ep_cpp_and_claim_have_prepublication_policy_and_correct_slack_routing(self):
         cases = [(FakeAPI(), Teams(), True),
                  (FakeAPI(cpp_issue()), Teams(sc=True), False),
                  (ClaimAPI(), Teams(), True)]
@@ -94,7 +93,10 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('opened', events(workflows['projects'])['issues']['types'])
         self.assertNotIn('pull_request_target', events(workflows['maintenance']))
         self.assertEqual(len(workflows['maintenance']['jobs']), 1)
-        for name in ('submit', 'validate'):
+        self.assertFalse(any(s.get('uses') == './project_workflow/policy'
+                             for s in workflows['projects']['jobs']['submit']['steps']))
+        self.assertEqual(workflows['projects']['jobs']['notify']['needs'], 'submit')
+        for name in ('notify', 'validate'):
             steps = workflows['projects']['jobs'][name]['steps']
             self.assertEqual(sum(s.get('uses') == './project_workflow/policy' for s in steps), 1)
 

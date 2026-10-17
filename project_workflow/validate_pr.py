@@ -21,6 +21,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def http_error_message(exc):
+    message = f"GitHub API error (HTTP {exc.code})"
+    request = getattr(exc, 'api_request', '')
+    return message + (f" during {request}" if request else '')
+
+
 class GitHub:
     def __init__(self, repo, token):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
@@ -49,8 +55,16 @@ class GitHub:
                      "X-GitHub-Api-Version": "2022-11-28",
                      "User-Agent": "project-management-validator"},
         )
-        with self.opener.open(request, timeout=30) as response:
-            raw = response.read(20 * 1024 * 1024 + 1)
+        try:
+            with self.opener.open(request, timeout=30) as response:
+                raw = response.read(20 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            # Never print request headers, query arguments, payloads or API bodies.
+            # A relative method/path is enough to locate a failing operation.
+            path = endpoint.split('?', 1)[0]
+            if re.fullmatch(r'[A-Za-z0-9_./%-]+', path):
+                exc.api_request = f'{method} {path}'
+            raise
         if len(raw) > 20 * 1024 * 1024:
             raise Invalid("GitHub response exceeded size limit")
         return json.loads(raw) if raw else None
@@ -283,7 +297,7 @@ def main():
         print("Only data was read from the proposed commit; its code/workflows were not executed.")
         return 0
     except urllib.error.HTTPError as exc:
-        print(json.dumps({"error": f"GitHub read failed (HTTP {exc.code})"}), file=sys.stderr)
+        print(json.dumps({"error": http_error_message(exc)}), file=sys.stderr)
     except (Invalid, OSError, ValueError, KeyError, TypeError, RecursionError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
     if publish and api is not None and status_sha is not None:

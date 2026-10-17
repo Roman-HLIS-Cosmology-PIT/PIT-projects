@@ -126,14 +126,14 @@ class DispatchTests(unittest.TestCase):
 
     def test_both_callers_pass_slack_setting_into_composite_scope(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/projects.yml').read_text())
-        for name in ('submit', 'validate'):
+        for name in ('notify', 'validate'):
             action = next(step for step in workflow['jobs'][name]['steps']
                           if step.get('uses') == './project_workflow/policy')
             self.assertEqual(action['with']['slack_app_id'], '${{ vars.SLACK_APP_ID }}')
         action = (ROOT / 'project_workflow/policy/action.yml').read_text()
         self.assertNotIn('vars.', action)
         self.assertEqual(self.step['env']['SLACK_APP_ID'], '${{ inputs.slack_app_id }}')
-        self.assertEqual(self.step['env']['SLACK_REVIEW'], '${{ steps.policy.outputs.slack_review }}')
+        self.assertEqual(self.step['env']['SLACK_REVIEW'], '${{ inputs.prevalidated_review || steps.policy.outputs.slack_review }}')
 
     def test_unconfigured_slack_and_cpp_have_explicit_skip_reasons(self):
         for changes, reason in (({'SLACK_APP_ID': ''}, 'Slack sync disabled'),
