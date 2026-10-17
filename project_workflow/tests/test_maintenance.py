@@ -1,14 +1,12 @@
 """Optional behavior checks for direct-main generation and protected-main fallback."""
 from copy import deepcopy
 import io
-import json
 import unittest
 import urllib.error
 
-import yaml
 
 from project_workflow import issue_intake
-from project_workflow.generated_files import OUTPUTS, updates_for
+from project_workflow.generated_files import OUTPUTS
 from project_workflow.project_registry import CONFIG_PATH, Invalid, load_context
 from project_workflow.sync_generated import GENERATION_BRANCH, synchronize_main, validate_generated_snapshot
 from test_generation import GenerationAPI

@@ -3,9 +3,6 @@ name: Project maintenance
 on:
   push:
     branches: [main]
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -20,7 +17,8 @@ jobs:
     name: Generate GitHub project files
     if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     concurrency:
-      group: project-generation-${{ github.event.pull_request.number || inputs.pr_number || 'main' }}
+      group: project-submission-and-policy
+      queue: max
       cancel-in-progress: false
     permissions:
       contents: write
@@ -43,28 +41,22 @@ jobs:
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           GENERATION_PR_NUMBER: ${{ inputs.pr_number }}
 
-  registry:
-    name: Registry health and exports
-    needs: generate
-    if: github.event_name != 'pull_request_target' && inputs.pr_number == ''
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Reload accepted main after generation
+        if: inputs.pr_number == ''
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: main
           persist-credentials: false
-      - uses: ./project_workflow/setup
-      - run: python -m project_workflow.project_registry validate
+      - name: Validate and export the accepted registry
+        if: inputs.pr_number == ''
+        run: python -m project_workflow.project_registry export --output-dir build
       - name: Check live SC team access
+        if: inputs.pr_number == ''
         run: python -m project_workflow.validate_pr --check-team
         env:
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
-      - run: python -m project_workflow.project_registry catalog --output build/projects.json
-      - run: python -m project_workflow.project_registry working-groups --output build/working_groups.yaml
       - name: Downloadable catalogue exports
+        if: inputs.pr_number == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: registry-catalogues

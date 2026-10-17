@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from project_workflow import claims, commands, issue_intake
 from project_workflow.project_registry import Invalid, load_context, parse_yaml
-from project_workflow.submission import project_path
 from test_commands import CommandTeams
 from test_cpp_claims import ClaimAPI, PATH, claim_issue
 from test_cpp_declarations import cpp_issue

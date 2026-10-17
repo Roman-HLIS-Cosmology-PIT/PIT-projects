@@ -6,7 +6,7 @@ from unittest.mock import patch
 from project_workflow import commands,issue_intake
 from project_workflow.project_registry import Invalid,load_context,parse_yaml
 from project_workflow.submission import project_path,validate_bot_snapshot
-from test_issue_submission import FakeAPI,Teams,issue_fixture,BASE_SHA
+from test_issue_submission import FakeAPI,Teams,BASE_SHA
 from test_registry import source_data
 
 

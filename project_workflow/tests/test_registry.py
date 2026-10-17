@@ -1,5 +1,4 @@
 """Optional offline checks of data safety and project authorization."""
-from copy import deepcopy
 from pathlib import Path
 import unittest
 import yaml

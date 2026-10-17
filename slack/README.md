@@ -2,64 +2,30 @@
 
 This is a Slack-hosted Deno app with a GitHub Actions bridge. No poll vendor or separate server is needed. A paid Slack workspace is required. Deployment is manual. The existing Issue forms, editing commands, project policy and review PRs remain authoritative.
 
-## 1. Remove only the old dummy app
-
-Do this in the **old** `pit-slack-dummy-vote` directory on your Mac, before installing this app. The patch cannot delete a workspace app by itself.
-
-```sh
-cd ~/Downloads/pit-slack-dummy-vote
-slack app list
-```
-
-Identify the deployed **PIT Dummy Vote** app and its workspace. Record their exact `A...` and `T...` IDs. Then substitute those two IDs:
-
-```sh
-slack app delete --app A_OLD_DUMMY_APP_ID --team T_YOUR_WORKSPACE_ID
-```
-
-Read the CLI confirmation and proceed only if it identifies **PIT Dummy Vote**. Do not use `--force`, workspace-wide cleanup, or another app's ID. This permanently removes that app, its hosted functions/workflows, triggers, environment and datastores. Other workspace apps are unaffected. If `slack app list` shows a separate local-development dummy app, repeat only for that explicitly identified dummy app ID. Stop any old `slack run` process first. An uninstall alone is insufficient: Slack retains datastores after uninstalling.
-
-Slack message history is separate from the app's datastores. If old dummy messages remain, delete only those specific **PIT Dummy Vote** messages in `test-pit-projects` using Slack's message menu and the permissions available to you. Do not clear the channel history. Once deletion is confirmed, the old local dummy directory/ZIP can be removed manually; neither is used by this app.
-
-Official references: [Delete an app](https://docs.slack.dev/tools/slack-cli/reference/commands/slack_app_delete/) and [download/delete datastore data](https://slack.com/help/articles/15945329427859-Download-or-delete-an-apps-datastore).
-
-## 2. Apply the patch
-
-From a clean checkout of `Roman-HLIS-Cosmology-PIT/PIT-projects`, based on main commit `7b666b93c16125ec79259d51b972ea0d2eaa0c42`:
-
-```sh
-git apply --check /path/to/pit-slack-review.patch
-git apply /path/to/pit-slack-review.patch
-```
-
-Review and merge these changes into main through your normal process. Workflow dispatches and the schedule use main. All app and bridge implementation lives in `slack/`; `.github/workflows/slack.yml` is the Actions entry point. The existing project workflows are not replaced. Before configuring `SLACK_APP_ID`, the new Actions job skips automatically.
-
 ## Updating an already installed app
 
-Use this section when PIT Projects is already installed. Do not repeat the dummy-app deletion or create another app or duplicate triggers.
+Reuse the existing PIT Projects app, workspace, configured channel and triggers. Pull the accepted repository changes before checking or deploying the app.
 
-From the root of your local PIT-projects checkout, after downloading the incremental patch to `~/Downloads`:
+After a Slack TypeScript or manifest change, run from the repository root:
 
 ```sh
-git apply --check ~/Downloads/pit-slack-direct-buttons.patch
-git apply ~/Downloads/pit-slack-direct-buttons.patch
 cd slack
 deno task check
 deno task test
-slack deploy --app A_NEW_APP_ID --team T_WORKSPACE_ID
+slack deploy --app A_APP_ID --team T_WORKSPACE_ID
 ```
 
-Use your existing PIT Projects app/workspace IDs. Keep your configured `channel.ts`; this patch does not change its channel ID, name or test controls. Commit and push the changed `slack/` files through your usual GitHub process. No GitHub Actions YAML, secrets, webhook URLs, datastores, or existing sync/command trigger definitions change in this update.
+Python bridge, workflow and documentation changes take effect from main without redeploying Slack. Keep the existing app/workspace IDs when a deployment is needed.
 
 Submit a **new dummy EP or CPP claim** to test direct buttons. Its initial synchronization leaves one custom function pending to keep the ordinary buttons alive ([Slack's documented pattern](https://docs.slack.dev/tools/deno-slack-sdk/guides/creating-an-interactive-message/)). Each click handles the existing function's Block Actions event; it does not launch another workflow. GitHub still receives the normal delivery acknowledgement immediately. Later valid edits and nightly/manual checks update the same root, while the original interaction stays pending. A terminal GitHub synchronization removes its buttons and attempts to complete that pending execution. A pending run in Slack activity during voting is expected.
 
-**Existing test messages:** their former sync function already completed, so this patch preserves their old workflow buttons, votes and threads rather than attaching ordinary buttons to a dead execution. They may still show Slack's access popup. Finish/close those tests and use a new submission to test the new UI. A manual `sync` updates their spacing but does not migrate their button execution. Do not delete root receipts or clear datastores to force a conversion. Already-posted duplicate replies are preserved; this patch prevents future initial duplicates. You can remove an old duplicate reply using Slack's Delete message action if your workspace permissions allow it.
+**Existing test messages:** their former sync function already completed, so the app preserves their old workflow buttons, votes and threads rather than attaching ordinary buttons to a dead execution. They may still show Slack's access popup. Finish/close those tests and use a new submission to test the new UI. A manual `sync` updates their spacing but does not migrate their button execution. Do not delete root receipts or clear datastores to force a conversion. Already-posted duplicate replies are preserved; new submissions do not post an initial duplicate reply. You can remove an old duplicate reply using Slack's Delete message action if your workspace permissions allow it.
 
-Keep `triggers/vote.ts`, its deployed trigger, channel access and `VOTE_TRIGGER_URL` while any old polls remain open. They are compatibility-only; new polls never use them. When all old tests finish, you may delete **only that recorded vote trigger** using `slack trigger delete --trigger-id Ft_VOTE_TRIGGER_ID --app A_NEW_APP_ID --team T_WORKSPACE_ID`; keep the sync and command triggers. Removing the compatibility source is optional and unnecessary for the new behavior.
+Keep `triggers/vote.ts`, its deployed trigger, channel access and `VOTE_TRIGGER_URL` while any old polls remain open. They are compatibility-only; new polls never use them. When all old tests finish, you may delete **only that recorded vote trigger** using `slack trigger delete --trigger-id Ft_VOTE_TRIGGER_ID --app A_APP_ID --team T_WORKSPACE_ID`; keep the sync and command triggers. Removing the compatibility source is optional and unnecessary for the new behavior.
 
 After deploying, verify in `test-pit-projects`: two different channel members can click buttons with no workflow access dialog; the root counts update; a valid edit posts one reply and the new buttons still work; a manual GitHub check updates the root; `!force-accept`/`!force-refuse` still dispatch immediately. These need a real Slack workspace; local SDK tests do not verify Slack's deployed interaction lifecycle or permissions.
 
-## 3. Configure the private test channel and deploy
+## 1. First installation: configure the private channel and deploy
 
 Open **test-pit-projects → channel name → About** and copy its channel ID. The channel must be private and unshared. Edit `slack/channel.ts`, replacing `CHANNEL_ID` with that ID. Keep `CHANNEL_NAME = "test-pit-projects"` and `TEST_BUTTONS = true` for now. Never put a channel name in place of the ID.
 
@@ -78,13 +44,13 @@ Select your workspace when prompted. This creates the new **PIT Projects** app, 
 
 Invite **PIT Projects** to `test-pit-projects` using the channel's Integrations → Add apps. Only that configured channel receives proposals. Inviting the app elsewhere does not enable votes or notifications there.
 
-## 4. Create the two triggers once
+## 2. Create the two triggers once
 
 Run these from `slack/`, substituting the new app/workspace IDs:
 
 ```sh
-slack trigger create --trigger-def triggers/sync.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID
-slack trigger create --trigger-def triggers/commands.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID
+slack trigger create --trigger-def triggers/sync.ts --app A_APP_ID --team T_WORKSPACE_ID
+slack trigger create --trigger-def triggers/commands.ts --app A_APP_ID --team T_WORKSPACE_ID
 ```
 
 Record both trigger IDs and keep the **sync webhook URL** (`https://hooks.slack.com/triggers/...`) secret. Do not add it to source control, issues or logs. New installations do not need a vote shortcut trigger, trigger access grants, or `VOTE_TRIGGER_URL`. Members click ordinary message buttons directly, as in the dummy app; voting does not launch a workflow or request workflow access. The app checks the actual interaction channel, original message timestamp, owning function execution and current proposal revision. Inviting it to another channel does not authorize votes there.
@@ -92,14 +58,14 @@ Record both trigger IDs and keep the **sync webhook URL** (`https://hooks.slack.
 Set the dispatch token on the deployed app. This command prompts for its value, avoiding a secret in shell history:
 
 ```sh
-slack env set GITHUB_DISPATCH_TOKEN --app A_NEW_APP_ID --team T_WORKSPACE_ID
+slack env set GITHUB_DISPATCH_TOKEN --app A_APP_ID --team T_WORKSPACE_ID
 ```
 
 For `GITHUB_DISPATCH_TOKEN`, create a fine-grained GitHub token owned/approved by the repository organization, restricted to **PIT-projects**, with **Actions: Read and write** plus automatic Metadata read. It only dispatches `slack.yml`; Slack does not receive a token able to merge PRs or edit repository contents. Set an expiry and rotate it before expiration. Organization approval/SSO policies may apply. The merge/close happens with the GitHub Actions token in the trusted repository job.
 
 If your CLI reports a webhook URL under a different official Slack host, check the current Slack documentation before changing the bridge's explicit host validation.
 
-## 5. Configure GitHub
+## 3. Configure GitHub
 
 From `slack/`, generate a CLI service token for CI using the official flow:
 
@@ -125,7 +91,7 @@ The SC team is read from `project_workflow/config.yaml`, currently `Roman-HLIS-C
 
 Ensure Actions can create/update project PRs as already required by this repository. Enable **squash merging** and **Automatically delete head branches**. Existing branch protection and required approvals still apply to automated acceptance. An override bypasses voting, not repository protections.
 
-## 6. Test the integration
+## 4. Test the integration
 
 1. Submit a valid EP through the existing form. After the PR's **Validate project policy** job succeeds, it queues **Slack project review** with operation `sync` for that PR. Expect one root message headed **🟠 Waiting**, type **New EP**, title, working groups, leads, contributors, description and review PR link. No initial thread reply is posted. Project fields use consecutive lines, with a single blank line before the votes. Exceptionally long root fields are explicitly shortened with a link to the full PR; valid subsequent edits still post their full text in the thread.
 2. Submit a CPP declaration: no Slack message. A subsequent valid claim on an accepted, available CPP produces its own **CPP claim** message.
@@ -142,20 +108,20 @@ SC count is refreshed for each valid synchronization/check. With `N` members, pa
 
 The schedule is **00:00 UTC** in `.github/workflows/slack.yml`; change its cron for another schedule. GitHub may delay scheduled runs or disable schedules in inactive public repositories. The manual trigger remains available. Vote clicks only update Slack, so a passing majority can still change before checking. A decision freezes its cutoff and SC count while GitHub applies it. Later ordinary ballots do not affect that frozen attempt. A newer thread override can replace a blocked pending decision until GitHub confirms merging/closure. A changed proposal starts a new vote instead.
 
-All bridge runs share the existing `project-submission-and-policy` concurrency queue, using GitHub's [documented `queue: max` setting](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency). Some actionlint releases do not yet recognize that setting. The bridge reads only trusted main code, replays the existing policy against live GitHub data, and merges using an exact head-SHA precondition. Proposed files are data, never executed. It explicitly requests project maintenance after merging because a `GITHUB_TOKEN` merge does not trigger another push workflow. Restoring an earlier project version still creates a fresh voting revision; it never restores its old ballots.
+All bridge runs share the existing `project-submission-and-policy` concurrency queue, using GitHub's [documented `queue: max` setting](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency). Some actionlint releases do not yet recognize that setting. The bridge reads only trusted main code, replays the existing policy against live GitHub data, and merges using an exact head-SHA precondition. Proposed files are data, never executed. It explicitly requests project maintenance after an Actions-bot merge because a `GITHUB_TOKEN` merge does not trigger another push workflow. Reconciliation of a human merge relies on the existing main-push maintenance run, avoiding a duplicate dispatch. Restoring an earlier project version still creates a fresh voting revision; it never restores its old ballots.
 
-Automatic Slack notifications follow successful **PR policy validation**, through an explicit dispatch from the validator. They no longer listen to completion of Issue intake runs. This also handles bot-created/edited PRs, whose `GITHUB_TOKEN` writes do not emit ordinary PR-triggered workflow runs. A per-head `PIT Slack sync queued` commit status avoids another automatic dispatch when duplicate Issue events request validation of the same head. That status confirms queuing, not delivery: retry a failed Slack run using the manual `sync` operation. A new validated head can queue another sync; an unchanged project-information revision still reuses the original message without another snapshot or a vote reset. Closing or merging an issue-backed bot PR manually also requests a PR-scoped status synchronization. Nightly checks, manual checks and thread overrides remain independent of this notification gate.
+Automatic Slack notifications follow successful **PR policy validation**, through a per-PR dispatch from the shared policy action after validation succeeds. Intake and policy run in one job; Slack delivery runs separately. This also handles bot-created/edited PRs, whose `GITHUB_TOKEN` writes do not emit ordinary PR-triggered workflow runs. A per-head `PIT Slack sync queued` commit status avoids another automatic dispatch when duplicate Issue events request validation of the same head. That status confirms queuing, not delivery: retry a failed Slack run using the manual `sync` operation. A new validated head can queue another sync; an unchanged project-information revision still reuses the original message without another snapshot or a vote reset. Closing or merging an issue-backed bot PR manually also requests a PR-scoped status synchronization. Nightly checks, manual checks and thread overrides remain independent of this notification gate.
 
 ## Maintenance and recovery
 
-- Inspect **Actions → Slack project review** and `slack activity --app A_NEW_APP_ID --team T_WORKSPACE_ID`. Errors redact credentials and voter identities. Check credentials, private channel membership, trigger access, branch protection and SC token access before retrying.
-- After Slack TypeScript or manifest changes, run the checks below and manually `slack deploy --app A_NEW_APP_ID --team T_WORKSPACE_ID`. Python bridge, documentation and GitHub workflow changes take effect from main and do not require redeploying the Slack app. Normal GitHub runs never deploy. Keep trigger IDs/URLs in your installation notes. Use `slack trigger update --trigger-id Ft_ID --trigger-def triggers/FILE.ts --app A_NEW_APP_ID --team T_WORKSPACE_ID` when a trigger definition changes, rather than creating duplicates.
+- Inspect **Actions → Slack project review** and `slack activity --app A_APP_ID --team T_WORKSPACE_ID`. Errors redact credentials and voter identities. Check credentials, private channel membership, trigger access, branch protection and SC token access before retrying.
+- After Slack TypeScript or manifest changes, run the checks below and manually `slack deploy --app A_APP_ID --team T_WORKSPACE_ID`. Python bridge, documentation and GitHub workflow changes take effect from main and do not require redeploying the Slack app. Normal GitHub runs never deploy. Keep trigger IDs/URLs in your installation notes. Use `slack trigger update --trigger-id Ft_ID --trigger-def triggers/FILE.ts --app A_APP_ID --team T_WORKSPACE_ID` when a trigger definition changes, rather than creating duplicates.
 - On first installation, an empty datastore is normal. Slack CLI 4.10.0 returns its datastore name and omits the `items` field when there are no records. The bridge treats that as an empty page and still follows any pagination cursor. No dummy records or datastore reset are needed. An `Incomplete Slack datastore query` error still blocks malformed responses, the wrong datastore, or errors returned by the CLI.
 - Separate `pit_projects` metadata, immutable `pit_ballots` events and `pit_messages` receipts prevent one voter overwriting another. Historical events/receipts are retained for recovery; datastore usage should be monitored. Do not delete pending ballots. A later retention policy can purge finalized projects after your desired audit period.
 - A merge/close response can be lost after GitHub applied it. The next check reads GitHub before taking another decision and repairs the Slack status and Issue cleanup. Terminal records remain eligible for recovery until reconciliation completes. For a specific finalized project, run a manual check with its PR number.
-- Delivery reserves a receipt before posting, to avoid silently reposting after an uncertain Slack response. If synchronization times out, inspect app activity first. `slack datastore get '{"datastore":"pit_messages","id":"pr-42"}' --app A_NEW_APP_ID --team T_WORKSPACE_ID --output json` shows the root receipt. If its `ts` is empty, find the existing PIT Projects message and set that receipt's `ts` to its actual Slack timestamp using `slack datastore put`. The item must contain exactly `id`, `channel` and `ts`. Revision receipts use `pr-42:FULL_REVISION_HASH`. If a reserved revision was only partly posted, complete its missing information manually in the original thread and mark its receipt with the root timestamp. If you verify no message was sent, delete **only that individual empty receipt** and run `sync` again. Never clear a whole datastore to fix one proposal. Avoid overlapping manual webhook invocations; the GitHub bridge waits for an explicit acknowledgement and serializes its own deliveries.
+- Delivery reserves a receipt before posting, to avoid silently reposting after an uncertain Slack response. If synchronization times out, inspect app activity first. `slack datastore get '{"datastore":"pit_messages","id":"pr-42"}' --app A_APP_ID --team T_WORKSPACE_ID --output json` shows the root receipt. If its `ts` is empty, find the existing PIT Projects message and set that receipt's `ts` to its actual Slack timestamp using `slack datastore put`. The item must contain exactly `id`, `channel` and `ts`. Revision receipts use `pr-42:FULL_REVISION_HASH`. If a reserved revision was only partly posted, complete its missing information manually in the original thread and mark its receipt with the root timestamp. If you verify no message was sent, delete **only that individual empty receipt** and run `sync` again. Never clear a whole datastore to fix one proposal. Avoid overlapping manual webhook invocations; the GitHub bridge waits for an explicit acknowledgement and serializes its own deliveries.
 - Rotate `SLACK_SERVICE_TOKEN`, `SLACK_SYNC_WEBHOOK` (recreate only its trigger), and `GITHUB_DISPATCH_TOKEN` when needed. Revoke obsolete credentials. The installed Deno/CLI versions are pinned in `slack/install-cli.sh`; update and recheck them together with the SDK imports. The Linux CLI archive is checksum-verified.
-- To pause integration, clear the GitHub variable `SLACK_APP_ID` and disable/delete this app's command trigger by its recorded ID. To retire the new app, use `slack app delete` with **its** explicit ID/workspace as in step 1. This never calls deletion against another app.
+- To pause integration, clear the GitHub variable `SLACK_APP_ID` and disable/delete this app's command trigger by its recorded ID. To retire the app, use `slack app delete --app A_APP_ID --team T_WORKSPACE_ID` with its verified app/workspace IDs and review the CLI confirmation.
 
 Before moving to the real SC channel: finish pending tests; set `TEST_BUTTONS = false` in `channel.ts` and GitHub variable `SLACK_TEST_BUTTONS=false`; change the channel ID in both places; deploy; update the command trigger's channel. For legacy polls only, update the old vote trigger's channel access if retaining it. Existing test polls cannot be silently rerouted because their channel is bound in stored metadata. Close/finish test submissions first. Ordinary updates in the same channel reuse the app, triggers, datastores and original messages.
 

@@ -16,7 +16,7 @@ import urllib.request
 from project_workflow.project_registry import Invalid, load_context
 from project_workflow.submission import (
     changed_files, is_submission_bot, issue_version, labelled, provenance, workflow_kind, record_path, issue_title,
-    number, project_path, project_yaml, proposal, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values,
+    number, project_path, project_yaml, submission_branch, submission_body, FORMATTED_MARKER, optional_fields, resolved_values,
 )
 from project_workflow.validate_pr import GitHub, NoRedirect, TeamDirectory, records
 from project_workflow.dispatch import validate_pr as dispatch_validation
@@ -204,16 +204,6 @@ def repository_warning(url):
     return "The main GitHub repository could not be verified. SC should check the link."
 
 
-def authenticate(issue, ctx, teams, repo):
-    org = repo.split("/", 1)[0]
-    if ctx.sc_team[0].lower() != org.lower():
-        raise Invalid("SC team must belong to this repository's organization")
-    actor = issue["user"]["login"]
-    member = teams.is_org_member(org, actor)
-    sc = teams.is_active_member(*ctx.sc_team, actor) if member else False
-    return member, sc
-
-
 def fresh(api, issue, base_sha, ctx, teams):
     current = api.get(f"issues/{issue['number']}")
     if issue_version(current) != issue_version(issue):
@@ -266,7 +256,8 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         read = api.reader(base_tree)
         ctx = load_context(read,paths=base_tree)
         records(base_tree,read,ctx)
-        member, sc = authenticate(issue,ctx,teams,api.repo)
+        if ctx.sc_team[0].lower() != api.repo.split("/", 1)[0].lower():
+            raise Invalid("SC team must belong to this repository's organization")
         from project_workflow.commands import current_record
         old_sha, old_commit, old_record = branch_snapshot(api,issue)
         record = current_record(api,issue,ctx,teams,old_record,allow_previous=True)
@@ -334,9 +325,9 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         payload = {'title':(prefix + record['name'])[:256],
                    'body':proposal_body(record,ctx,api.repo,issue_number,warning)}
         had_pr = pr is not None
-        if pr:
+        if pr and any(pr.get(key) != value for key, value in payload.items()):
             pr = api.request('PATCH',f"pulls/{pr['number']}",payload)
-        else:
+        elif pr is None:
             pr = api.request('POST','pulls',{**payload,'head':submission_branch(issue_number),'base':'main'})
         request_review(api,pr,ctx)
         dispatch_validation(api,pr['number'])
@@ -395,10 +386,6 @@ def main():
             if event.get('action') == 'closed':
                 result = reject_submission(api,pr['number'])
                 print(json.dumps({'issue':issue_number,'result':result}))
-                return 0
-            issue = api.get(f'issues/{issue_number}')
-            _, _, stored = branch_snapshot(api,issue)
-            if stored is None or workflow_kind(stored) != 'CLAIM':
                 return 0
         else:
             issue_number = number(int(raw)) if raw else number(event['issue']['number'])

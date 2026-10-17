@@ -250,8 +250,10 @@ class Bridge:
             issue = self.api.get(f"issues/{value['issue']}")
             if issue['state'] != 'closed':
                 self.api.request('PATCH', f"issues/{value['issue']}", {'state': 'closed', 'state_reason': 'completed'})
-            # GITHUB_TOKEN merges do not trigger a new push workflow.
-            self.api.request('POST', 'actions/workflows/maintenance.yml/dispatches', {'ref': 'main'})
+            # Human merges already trigger main's push workflow. Only the
+            # Actions bot needs an explicit maintenance run after its merge.
+            if is_submission_bot(pr.get('merged_by') or {}):
+                self.api.request('POST', 'actions/workflows/maintenance.yml/dispatches', {'ref': 'main'})
             value['reconciled'] = True
             self.slack.save(value)
             return True

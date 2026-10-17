@@ -9,13 +9,13 @@ import time
 import unittest
 from unittest.mock import patch
 
-from slack.bridge import Bridge, Invalid, Slack, member_count, project_value, tally
+from slack.bridge import Bridge, Invalid, Slack, member_count, tally
 from project_workflow import issue_intake
 from project_workflow import commands
 
 # Reuse the actual submission fixtures, not a second implementation of policy.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'project_workflow/tests'))
-from test_issue_submission import FakeAPI, Teams
+from test_issue_submission import BOT, FakeAPI, Teams
 from test_cpp_claims import ClaimAPI
 from test_cpp_declarations import cpp_issue
 
@@ -55,7 +55,7 @@ class MergeAPI(FakeAPI):
             if self.blocked:
                 raise Invalid('Protected branch requires review')
             assert payload['sha'] == self.pr['head']['sha']
-            self.pr.update(state='closed', merged_at='2026-10-16T00:00:00Z')
+            self.pr.update(state='closed', merged_at='2026-10-16T00:00:00Z', merged_by=deepcopy(BOT))
             if self.crash_after_merge:
                 raise OSError('Connection lost after GitHub merged')
             return {'merged': True}
@@ -108,6 +108,15 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNone(self.api.pr['merged_at'])
         self.assertEqual(self.api.issue['state'], 'closed')
         self.assertNotIn('project-submissions/issue-12', self.api.refs)
+
+    def test_human_merge_reconciliation_does_not_duplicate_push_maintenance(self):
+        self.sync()
+        self.api.pr.update(state='closed', merged_at='2026-10-16T00:00:00Z',
+                           merged_by={'login': 'sc-user', 'id': 456, 'type': 'User'})
+        self.assertEqual(self.sync(), 0)
+        self.assertEqual(self.store.projects['pr-99']['status'], 'accepted')
+        self.assertFalse(any(w[1] == 'actions/workflows/maintenance.yml/dispatches'
+                             for w in self.api.writes))
 
     def test_abstain_quorum_remains_waiting(self):
         self.sync(); self.vote('test:abstain')

@@ -46,7 +46,9 @@ class DispatchTests(unittest.TestCase):
     def setUp(self):
         workflow = yaml.safe_load((ROOT / '.github/workflows/projects.yml').read_text())
         self.job = workflow['jobs']['validate']
-        self.step = next(step for step in self.job['steps']
+        action = yaml.safe_load((ROOT / 'project_workflow/policy/action.yml').read_text())
+        self.steps = action['runs']['steps']
+        self.step = next(step for step in self.steps
                          if step.get('name') == 'Queue Slack sync for the validated submission PR')
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -107,9 +109,9 @@ class DispatchTests(unittest.TestCase):
         self.assertFalse(self.saved().get('dispatches'))
 
     def test_dispatch_is_after_validation_and_manual_schedule_are_preserved(self):
-        self.assertEqual(self.step['if'], "success() && vars.SLACK_APP_ID != ''")
+        self.assertEqual(self.step['if'], "success() && vars.SLACK_APP_ID != '' && steps.policy.outputs.slack_review == 'true'")
         self.assertEqual(self.job['permissions']['actions'], 'write')
-        steps = self.job['steps']
+        steps = self.steps
         policy = next(i for i, step in enumerate(steps)
                       if step.get('run') == 'python -m project_workflow.validate_pr --publish-status')
         self.assertGreater(steps.index(self.step), policy)

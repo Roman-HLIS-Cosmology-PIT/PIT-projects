@@ -1,20 +1,13 @@
 """Offline submission/PR integration tests; all GitHub calls are simulated."""
 from copy import deepcopy
-from contextlib import redirect_stderr, redirect_stdout
 import hashlib
-import io
-import os
-from pathlib import Path
-import sys
-import tempfile
 import unittest
-from unittest.mock import patch
 import urllib.error
 
 
-from project_workflow import issue_intake, validate_pr
+from project_workflow import issue_intake
 from project_workflow.issue_form import BOT_ID, BOT_LOGIN, current_labels
-from project_workflow.project_registry import Invalid, load_context, parse_yaml, validate_record
+from project_workflow.project_registry import Invalid, load_context, parse_yaml
 from project_workflow.submission import project_path, project_yaml, proposal, validate_bot_snapshot
 from test_registry import source_data
 
@@ -165,7 +158,7 @@ class FakeAPI:
             self.pr = {"number": 99 + len(self.prs), "state": "open", "merged_at": None, "user": deepcopy(BOT),
                 "base": {"sha": BASE_SHA, "ref": "main", "repo": {"full_name": self.repo}},
                 "head": {"sha": self.refs[payload["head"]], "ref": payload["head"], "repo": {"full_name": self.repo}},
-                "body": payload["body"]}
+                "title": payload["title"], "body": payload["body"]}
             self.prs[self.pr['number']] = self.pr
             return deepcopy(self.pr)
         if endpoint.startswith('pulls/'):

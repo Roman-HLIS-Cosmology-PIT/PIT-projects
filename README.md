@@ -49,7 +49,7 @@ CPP declarations follow the same review PR, reviewer routing (`aguinot` during t
 
 The declaration form applies only `new-cpp-project`; the EP form applies only `new-project`. Keep the original label throughout review. Both labels together are rejected; changing a label cannot convert an existing proposal. The new label must exist in the repository before the CPP form is used; see installation below. Shared wording and catalogues generate both forms from `project_workflow/config.yaml` and `working_groups/`.
 
-CPP assignment now uses the separate claim form described below. KEY declarations and post-acceptance member editing remain outside this update. Existing accepted records are preserved.
+CPP assignment now uses the separate claim form described below. KEY declarations use the SC YAML process; post-acceptance member editing is not supported. Existing accepted records are preserved.
 
 ## Claiming a CPP
 
@@ -108,9 +108,11 @@ The EP form stays fixed to EP. CPP has its own SC-only declaration form. KEY rec
 
 ## Workflows and permissions
 
-**Project workflows** processes EP/CPP submission and claim Issue events, unmerged review PR closures and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Bot-created PRs explicitly dispatch this check because `GITHUB_TOKEN` writes do not reliably trigger PR workflows.
+**Project workflows** processes EP/CPP submission and claim Issue events, unmerged review PR closures and cancellation, and independently validates PR data. Bot PR validation reconstructs the record from the live Issue and permits only its project file. Direct PRs require a live SC-team author. Validation publishes the required commit status **Project policy** on the actual PR head. Initial intake listens to the form's submission-label event rather than both `opened` and `labeled`. Submission and command runs perform independent PR policy validation as a subsequent step in the same job; they do not dispatch a second project workflow. Human PR runs refresh generated files before checking the resulting live head. Reopening a bot submission uses the submission path alone. Changes to PR prose and unrelated Issue labels do not repeat policy processing. Explicit validation dispatch remains available for maintenance, pending-claim refreshes and standalone callers.
 
-**Project maintenance** synchronizes generated files, checks registry and SC-team access, and provides `projects.json` and combined `working_groups.yaml` as downloadable `registry-catalogues` artifacts. Source edits support both main commits and SC PRs. No unit-test suite is a mandatory workflow gate.
+**Project maintenance** handles main pushes and manual maintenance. It synchronizes generated files, checks registry and SC-team access, and provides `projects.json` and combined `working_groups.yaml` as downloadable `registry-catalogues` artifacts using one runner and one combined export command. SC PR generation belongs to **Project workflows**, so maintenance does not start a competing PR run. Manual per-PR maintenance remains available. Submission, generation, policy and Slack decisions share the existing non-cancelling queue to avoid concurrent bot writes. No unit-test suite is a mandatory workflow gate.
+
+`project_workflow/policy/action.yml` owns the shared trusted-base checkout, validation and per-head Slack dispatch receipt. Only validated EP proposals and CPP claims queue Slack; CPP declarations do not. The Python setup action caches dependencies by the pinned requirements file and installs them once per version within each job, including when policy switches to an older trusted base. The GitHub adapter caches only immutable trees and blobs within one process; refs, Issues, PRs, comments and membership checks remain live.
 
 Use `SC_TEAM_READ_TOKEN` with organization **Members: read**, scoped to the organization. The roster is read from `Roman-HLIS-Cosmology-PIT/steering-committee`; it is not stored in the repository. Repository writes use each job's scoped `GITHUB_TOKEN`. Both workflows execute trusted main/base code, never proposed PR code or submitted commands. They reject forks and unexpected changes in reserved branches.
 
@@ -171,13 +173,11 @@ Projects store a `leads` array of `{name, github_username}` objects. Applied com
 
 Do not edit or delete an applied command comment: its receipt will no longer match, and the PR policy check will fail. Post a new command instead. Restoring the exact original comment can repair an edit; a deleted applied comment normally requires cancelling and resubmitting. Historical command authors leaving the organization also cause validation to fail closed and require SC inspection.
 
-GitHub does not provide a single transaction spanning a branch, Issue and PR. A valid edit is first recorded on the existing branch with a pending policy status, then the Issue/PR are synchronized and independent validation is dispatched. Brief synchronization failures are retried automatically without applying the command again. If synchronization still fails, the Actions run fails and logs the error category. The recorded edit remains blocked; run **Project workflows → Run workflow** on **main**, choose **submit**, and enter its Issue number to finish synchronization from all recorded receipts. This also recovers an Issue summary several recorded edits behind. Recovery accepts only exact summaries from authenticated history; independent PR validation still requires the final summary. After publishing a workflow fix, use this new manual run instead of rerunning an old workflow version. No extra confirmation step is required. If several comments arrive out of processing order, an older comment after a newer applied edit is rejected; post it again as a new comment.
+GitHub does not provide a single transaction spanning a branch, Issue and PR. A valid edit is first recorded on the existing branch with a pending policy status, then the Issue/PR are synchronized and independent validation runs in the same job. Brief synchronization failures are retried automatically without applying the command again. If synchronization still fails, the Actions run fails and logs the error category. The recorded edit remains blocked; run **Project workflows → Run workflow** on **main**, choose **submit**, and enter its Issue number to finish synchronization from all recorded receipts. This also recovers an Issue summary several recorded edits behind. Recovery accepts only exact summaries from authenticated history; independent PR validation still requires the final summary. After publishing a workflow fix, use this new manual run instead of rerunning an old workflow version. No extra confirmation step is required. If several comments arrive out of processing order, an older comment after a newer applied edit is rejected; post it again as a new comment.
 
-## Install this update
+## Rejection cleanup and recovery
 
-This rejection-cleanup patch is based on main commit `60c4ce3`. It adds `pull_request_target: closed` handling to the existing trusted-main submission job, with the same serialization group and existing repository permissions. No new label, secret or permission is required. Closing an automated review PR without merging now terminates its submission instead of keeping it available for reopening.
-
-Apply and publish through the usual direct-main or SC PR process. New PR closure events run the updated main code. For a PR closed before publication, use **Project workflows → Run workflow → main → operation `submit` → its Issue number** to run the same rejection cleanup. This retry also works without a membership token. No registry record or available-project list needs a manual edit after rejection.
+Closing an automated review PR without merging terminates its submission. To finish cleanup after an interrupted or older closure, use **Project workflows → Run workflow → main → operation `submit` → its Issue number** to run the same rejection cleanup. This retry also works without a membership token. No registry record or available-project list needs a manual edit after rejection.
 
 The workflow re-reads live PR state, verifies bot identity, repository, target branch, Issue binding and the scoped proposal commit before closing the Issue. It deletes only the verified reserved branch. A missing ref is supported by verifying the retained PR head; retries finish interrupted deletion without duplicating the cancellation comment. Cleanup does not require SC membership lookup. Unrelated/human/fork PRs, merged PRs and stale close events for reopened PRs are excluded. If a scoped branch contains unrelated changes or advances unexpectedly, cleanup fails safely and SC must inspect it.
 
@@ -221,7 +221,7 @@ python -m pip install -r project_workflow/requirements.txt
 python -m project_workflow.generated_files
 python -m project_workflow.issue_form --check
 python -m project_workflow.project_registry validate
+python -m project_workflow.project_registry export --output-dir build
 python -m unittest discover -s project_workflow/tests
+python -m unittest discover -s slack/tests
 ```
-
-No website or wiki integration is added in this patch.

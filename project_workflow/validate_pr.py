@@ -28,6 +28,10 @@ class GitHub:
         self.repo = repo
         self.token = token
         self.opener = urllib.request.build_opener(NoRedirect)
+        # Only immutable Git objects are cached. Issues, refs, PRs, comments and
+        # membership must be fetched again for every freshness/authorization check.
+        self._trees = {}
+        self._blobs = {}
 
     def get(self, endpoint):
         return self.request("GET", endpoint)
@@ -75,14 +79,16 @@ class GitHub:
     def tree(self, sha):
         if not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise Invalid("Invalid commit SHA")
+        if sha in self._trees:
+            return {path: dict(item) for path, item in self._trees[sha].items()}
         tree = self.get(f"git/trees/{sha}?recursive=1")
         if tree.get("truncated") or len(tree["tree"]) > 10000:
             raise Invalid("Repository tree is too large to validate completely")
-        return {item["path"]: item for item in tree["tree"]}
+        result = {item["path"]: item for item in tree["tree"]}
+        self._trees[sha] = result
+        return {path: dict(item) for path, item in result.items()}
 
     def reader(self, tree):
-        cache = {}
-
         def read(path):
             if path not in tree:
                 raise Invalid(f"Required data file is missing: {path}")
@@ -91,14 +97,14 @@ class GitHub:
                 raise Invalid("Data files must be ordinary nonexecutable files")
             if item.get("size", 0) > 1024 * 1024:
                 raise Invalid("Data file exceeds the 1 MiB limit")
-            if path not in cache:
+            if item['sha'] not in self._blobs:
                 blob = self.get(f"git/blobs/{item['sha']}")
                 if blob["encoding"] != "base64" or blob["size"] > 1024 * 1024:
                     raise Invalid("Unsupported or oversized Git blob")
                 # GitHub wraps base64 at line boundaries.
                 encoded = "".join(blob["content"].split())
-                cache[path] = base64.b64decode(encoded, validate=True).decode("utf-8")
-            return cache[path]
+                self._blobs[item['sha']] = base64.b64decode(encoded, validate=True).decode("utf-8")
+            return self._blobs[item['sha']]
         return read
 
 
@@ -205,7 +211,7 @@ def main():
             return 0
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         api = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
-        from project_workflow.submission import branch_issue, is_submission_bot, issue_version, validate_bot_snapshot
+        from project_workflow.submission import branch_issue, is_submission_bot, issue_version, validate_bot_snapshot, workflow_kind
         supplied_number = os.environ.get("POLICY_PR_NUMBER", "")
         number = int(supplied_number) if supplied_number else event["pull_request"]["number"]
         if type(number) is not int or number < 1:
@@ -236,6 +242,7 @@ def main():
             raise Invalid("SC team must belong to this repository's organization")
         head_read = api.reader(head_tree)
         issue = None
+        record = None
         generation_pr = False
         if is_submission_bot(pr["user"]):
             from project_workflow.sync_generated import GENERATION_BRANCH, validate_generated_snapshot
@@ -245,7 +252,7 @@ def main():
             else:
                 issue = api.get(f"issues/{branch_issue(pr['head']['ref'])}")
                 actor = issue["user"]["login"]
-                validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
+                record = validate_bot_snapshot(base_tree, head_tree, base_read, head_read, pr, issue, ctx,
                     organization_member=team_api.is_org_member(ctx.sc_team[0], actor),
                     is_sc=team_api.is_active_member(*ctx.sc_team, actor), api=api, teams=team_api)
             count = len(records(head_tree, head_read, ctx))
@@ -268,6 +275,10 @@ def main():
             raise Invalid("PR author is no longer an active member of the SC team")
         if publish:
             api.status(status_sha, "success", "Current proposal and requester permissions passed")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                review = record is not None and workflow_kind(record) in {"EP", "CLAIM"}
+                output.write(f"slack_review={str(review).lower()}\n")
         print(f"Project policy passed: {count} project(s) in the proposed registry.")
         print("Only data was read from the proposed commit; its code/workflows were not executed.")
         return 0

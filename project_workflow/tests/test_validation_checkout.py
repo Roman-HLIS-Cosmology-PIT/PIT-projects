@@ -13,8 +13,8 @@ import yaml
 class ValidationCheckoutTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[2]
-        workflow = yaml.safe_load((root / '.github/workflows/projects.yml').read_text())
-        self.steps = workflow['jobs']['validate']['steps']
+        workflow = yaml.safe_load((root / 'project_workflow/policy/action.yml').read_text())
+        self.steps = workflow['runs']['steps']
         self.resolver = self.steps[0]
 
     def resolve(self, *, number='36', repo='test-org/registry', ref='main', sha='a' * 40,
@@ -42,7 +42,7 @@ sys.exit(int(os.environ['API_EXIT']))
             return result, output.read_text(), json.loads(call.read_text()) if call.exists() else None
 
     def test_dispatch_checks_out_older_pr_base_instead_of_newer_main(self):
-        self.assertEqual(self.resolver['if'], "github.event_name == 'workflow_dispatch'")
+        self.assertNotIn('if', self.resolver)
         result, output, call = self.resolve()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(output, 'sha=' + 'a' * 40 + '\n')
@@ -50,7 +50,7 @@ sys.exit(int(os.environ['API_EXIT']))
                                 '.base | [.repo.full_name, .ref, .sha] | @tsv'])
         checkout = self.steps[1]
         self.assertEqual(checkout['with']['ref'],
-                         '${{ github.event.pull_request.base.sha || steps.pr-base.outputs.sha }}')
+                         '${{ steps.pr-base.outputs.sha }}')
         self.assertFalse(checkout['with']['persist-credentials'])
 
     def test_invalid_pr_number_fails_before_api_or_checkout(self):

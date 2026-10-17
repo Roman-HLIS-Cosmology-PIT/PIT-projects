@@ -334,6 +334,24 @@ def load_local_context(root: Path) -> Context:
     return load_context(local_reader(root), paths=paths)
 
 
+def catalog_json(ctx, records):
+    return json.dumps({"schema_version": 1, "working_groups": list(ctx.working_groups.values()),
+                       "projects": list(records.values())}, indent=2, ensure_ascii=False) + "\n"
+
+
+def working_groups_yaml(ctx):
+    return yaml.safe_dump({"working_groups": list(ctx.working_groups.values())},
+                          sort_keys=False, allow_unicode=True)
+
+
+def write_output(text, path=None):
+    if path is None:
+        print(text, end="")
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -343,27 +361,23 @@ def main():
     catalog.add_argument("--output", type=Path)
     groups = sub.add_parser("working-groups", help="Export one combined YAML catalogue from the working-group files")
     groups.add_argument("--output", type=Path)
+    exports = sub.add_parser("export", help="Validate and write both registry catalogues in one pass")
+    exports.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     try:
         ctx = load_local_context(args.root)
         if args.command == "working-groups":
-            output = yaml.safe_dump({"working_groups": list(ctx.working_groups.values())}, sort_keys=False, allow_unicode=True)
-            if args.output:
-                args.output.parent.mkdir(parents=True, exist_ok=True)
-                args.output.write_text(output, encoding="utf-8")
-            else:
-                print(output, end="")
+            write_output(working_groups_yaml(ctx), args.output)
         else:
             records = local_records(args.root, ctx)
             if args.command == "validate":
                 print(f"Registry valid: {len(records)} project(s).")
+            elif args.command == "export":
+                write_output(catalog_json(ctx, records), args.output_dir / "projects.json")
+                write_output(working_groups_yaml(ctx), args.output_dir / "working_groups.yaml")
+                print(f"Registry valid: {len(records)} project(s); both catalogues exported.")
             else:
-                output = json.dumps({"schema_version": 1, "working_groups": list(ctx.working_groups.values()), "projects": list(records.values())}, indent=2, ensure_ascii=False) + "\n"
-                if args.output:
-                    args.output.parent.mkdir(parents=True, exist_ok=True)
-                    args.output.write_text(output, encoding="utf-8")
-                else:
-                    print(output, end="")
+                write_output(catalog_json(ctx, records), args.output)
     except (Invalid, OSError, ValueError, KeyError, TypeError, RecursionError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1

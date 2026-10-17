@@ -7,8 +7,7 @@ import time
 import urllib.error
 
 from project_workflow.project_registry import Invalid, USERNAME, validate_record
-from project_workflow.submission import (number, proposal, submission_body, project_path,
-    issue_version, is_submission_bot, FORMATTED_MARKER, labelled, submission_kind, provenance, workflow_kind, record_path, issue_project_path, issue_title)
+from project_workflow.submission import (number, proposal, submission_body, issue_version, is_submission_bot, FORMATTED_MARKER, labelled, submission_kind, provenance, workflow_kind, record_path, issue_project_path, issue_title)
 from project_workflow.review import formatted_issue_body, safe_text
 
 # Syntax and help live together; adding a command changes this module only.
@@ -340,7 +339,6 @@ def process(api, teams, issue_number, event_comment, *, action='created'):
     from project_workflow.issue_intake import associated_pr, branch_snapshot, feedback, process as submit
     from project_workflow.project_registry import load_context, parse_yaml
     from project_workflow.submission import project_yaml, submission_branch
-    from project_workflow.review import proposal_body
     from project_workflow.dispatch import validate_pr as dispatch
     issue=api.get(f'issues/{number(issue_number)}')
     if issue.get('pull_request') or not labelled(issue):return 'ignored'

@@ -10,11 +10,10 @@ from unittest.mock import patch
 from project_workflow import claims, commands, issue_intake, validate_pr
 from project_workflow.generated_files import render, updates_for, relevant
 from project_workflow.issue_form import current_labels, form, FORM_PATHS
-from project_workflow.project_registry import Invalid, load_context, parse_yaml, validate_record
-from project_workflow.submission import (project_yaml, provenance, record_path, issue_project_path,
-    proposal, submission_body, validate_bot_snapshot)
+from project_workflow.project_registry import Invalid, load_context, parse_yaml
+from project_workflow.submission import (project_yaml, proposal, submission_body, validate_bot_snapshot)
 from test_commands import CommandTeams
-from test_issue_submission import FakeAPI, BASE_SHA, issue_fixture, BOT
+from test_issue_submission import FakeAPI, BASE_SHA, issue_fixture
 from test_registry import source_data, project
 
 TARGET = 'P000042'

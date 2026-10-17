@@ -2,12 +2,14 @@ name: Project workflows
 
 on:
   issues:
-    types: [opened, edited, reopened, labeled, unlabeled, closed]
+    # Forms apply one submission label at creation. Listening to both opened
+    # and labeled processes the same proposal twice.
+    types: [edited, reopened, labeled, unlabeled, closed]
   issue_comment:
     types: [created, edited, deleted]
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, edited, ready_for_review, closed]
+    types: [opened, synchronize, reopened, edited, closed]
   workflow_dispatch:
     inputs:
       operation:
@@ -31,7 +33,10 @@ jobs:
   submit:
     name: Project submission
     if: >-
-      (github.event_name == 'issues' &&
+      (github.event_name == 'issues' && !github.event.issue.pull_request &&
+       (github.event.action != 'labeled' && github.event.action != 'unlabeled' ||
+        github.event.label.name == 'new-project' || github.event.label.name == 'new-cpp-project' ||
+        github.event.label.name == 'claim-cpp') &&
        (github.event.action == 'closed' ||
         contains(github.event.issue.labels.*.name, 'new-project') ||
         contains(github.event.issue.labels.*.name, 'new-cpp-project') ||
@@ -44,7 +49,8 @@ jobs:
         contains(github.event.issue.labels.*.name, 'claim-cpp')) &&
        (github.event.action != 'created' || startsWith(github.event.comment.body, '/'))) ||
       (github.event_name == 'pull_request_target' &&
-       (github.event.action == 'reopened' || github.event.action == 'closed') &&
+       (github.event.action == 'reopened' ||
+        (github.event.action == 'closed' && !github.event.pull_request.merged)) &&
        github.event.pull_request.user.id == 41898282 &&
        startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-')) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'submit')
@@ -66,105 +72,63 @@ jobs:
           ref: main
           persist-credentials: false
       - uses: ./project_workflow/setup
-      - run: python -m project_workflow.issue_intake
+      - id: submission
+        run: python -m project_workflow.issue_intake
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           SUBMISSION_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          POLICY_INLINE: 'true'
+      - name: Independently validate the submitted PR
+        if: steps.submission.outputs.pr_number != ''
+        uses: ./project_workflow/policy
+        with:
+          pr_number: ${{ steps.submission.outputs.pr_number }}
+          sc_team_read_token: ${{ secrets.SC_TEAM_READ_TOKEN }}
 
   validate:
     name: Validate project policy
+    # Reopened submission PRs are repaired and checked by submit. PR prose does
+    # not affect policy; an edited base does. No separate maintenance PR run.
     if: >-
-      (github.event_name == 'pull_request_target' && github.event.action != 'closed') ||
+      (github.event_name == 'pull_request_target' && github.event.action != 'closed' &&
+       (github.event.action != 'edited' || github.event.changes.base) &&
+       !(github.event.action == 'reopened' && github.event.pull_request.user.id == 41898282 &&
+         startsWith(github.event.pull_request.head.ref, 'project-submissions/issue-'))) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'validate')
     concurrency:
       group: project-submission-and-policy
       queue: max
       cancel-in-progress: false
     permissions:
-      contents: read
-      pull-requests: read
+      contents: write # The narrowly scoped generator may append native outputs to an SC PR.
+      pull-requests: write
       issues: read
       statuses: write
-      actions: write # Dispatch Slack only after a successful PR policy check.
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Resolve trusted PR base for dispatched validation
-        if: github.event_name == 'workflow_dispatch'
-        id: pr-base
+      - name: Check out trusted main for generation; never PR head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./project_workflow/setup
+      - name: Refresh generated files before checking the live PR head
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          POLICY_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          if [[ ! "$POLICY_PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+          if [[ ! "$GENERATION_PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::pr_number must be a positive integer"
             exit 1
           fi
-          # A dispatch uses main's SHA, which may differ from an older PR's base.
-          # Resolve metadata before checkout; never select the proposed head.
-          pr_base="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${POLICY_PR_NUMBER}" \
-            --jq '.base | [.repo.full_name, .ref, .sha] | @tsv')"
-          IFS=$'\t' read -r base_repo base_ref base_sha <<< "$pr_base"
-          if [[ "$base_repo" != "$GITHUB_REPOSITORY" || "$base_ref" != main ||
-                "$pr_base" != "$base_repo"$'\t'"$base_ref"$'\t'"$base_sha" ||
-                ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::PR must target this repository's main branch with a valid base commit"
-            exit 1
-          fi
-          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-      - name: Check out trusted base; never PR head
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || steps.pr-base.outputs.sha }}
-          persist-credentials: false
-      - uses: ./project_workflow/setup
-      - run: python -m project_workflow.validate_pr --publish-status
+          python -m project_workflow.sync_generated
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
-          POLICY_PR_NUMBER: ${{ inputs.pr_number }}
-      - name: Queue Slack sync for the validated submission PR
-        if: success() && vars.SLACK_APP_ID != ''
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REVIEW_PR: ${{ github.event.pull_request.number || inputs.pr_number }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$REVIEW_PR" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error::Invalid review PR number"
-            exit 1
-          fi
-          pr_info="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${REVIEW_PR}" \
-            --jq '[.head.sha, .user.id, .head.ref, .state] | @tsv')"
-          IFS=$'\t' read -r head_sha author_id head_ref pr_state <<< "$pr_info"
-          if [[ "$author_id" != 41898282 || "$head_ref" != project-submissions/issue-* || "$pr_state" != open ]]; then
-            echo "No Slack submission sync needed for this PR."
-            exit 0
-          fi
-          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Invalid proposal head SHA"
-            exit 1
-          fi
-          states="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${head_sha}/status" \
-            --jq '[([.statuses[] | select(.context == "Project policy")][0].state // "missing"), ([.statuses[] | select(.context == "PIT Slack sync queued")][0].state // "missing")] | @tsv')"
-          IFS=$'\t' read -r policy_state queued_state <<< "$states"
-          if [[ "$policy_state" != success ]]; then
-            echo "::error::Current proposal head has not passed Project policy"
-            exit 1
-          fi
-          if [[ "$queued_state" == success ]]; then
-            echo "Slack sync already requested for this proposal head."
-            exit 0
-          fi
-          gh workflow run slack.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            -f operation=sync -f "pr_number=$REVIEW_PR"
-          # The shared submission/policy queue serializes this per-head receipt.
-          # This marks dispatch, not Slack delivery; failed delivery can always
-          # be retried with Slack project review's permanent manual sync option.
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${head_sha}" \
-            -f state=success -f 'context=PIT Slack sync queued' \
-            -f 'description=Slack synchronization requested for this proposal head' \
-            -f "target_url=https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > /dev/null
+          GENERATION_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          POLICY_INLINE: 'true'
+      - uses: ./project_workflow/policy
+        with:
+          pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+          sc_team_read_token: ${{ secrets.SC_TEAM_READ_TOKEN }}
