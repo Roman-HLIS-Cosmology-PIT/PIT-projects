@@ -1,0 +1,23 @@
+schema_version: 1
+project_id: P000053
+name: Project new
+kind: EP
+status: active
+leads:
+- name: AG
+  github_username: aguinot
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CPIP
+  deliverable_ids: []
+summary: Test after clean up
+phd_thesis: false
+submission:
+  issue_number: 53
+  submitted_by: aguinot
+  submitted_at: '2026-10-17T06:40:40Z'
+  issue_title_sha256: dcf00491e438b1b4338e3ba665a90caa8a8a89f9e01097839e0d7518537353f0
+  issue_body_sha256: 3cc1dcd785a19e6fbf96a3c3c46c293ca53be60a6138d7daf90a47a6c1d563c9
