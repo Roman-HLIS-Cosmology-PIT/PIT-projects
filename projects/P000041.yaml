@@ -1,0 +1,35 @@
+schema_version: 1
+project_id: P000041
+name: Test slack
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors:
+- name: Axel J
+  github_username: aguinottest
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-3
+summary: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed sollicitudin
+  scelerisque enim, viverra tincidunt ipsum lobortis a. Praesent placerat mi sit amet
+  vulputate sollicitudin. Suspendisse pulvinar varius arcu sed maximus. Duis malesuada
+  arcu in dignissim suscipit. Praesent volutpat arcu vitae augue varius venenatis.
+  Praesent sit amet euismod erat. Nunc pulvinar eget urna non gravida. Nam efficitur
+  aliquam felis, in ullamcorper nibh dignissim et. Cras ornare elit sit amet pellentesque
+  molestie. Ut quis tellus neque. Class aptent taciti sociosqu ad litora torquent
+  per conubia nostra, per inceptos himenaeos. Nullam eget mollis ligula, quis cursus
+  nunc. Donec urna libero, porta ut nisi vel, maximus pellentesque nibh. Praesent
+  semper varius dolor, porta pharetra tortor ullamcorper eu.
+phd_thesis: false
+submission:
+  issue_number: 41
+  submitted_by: aguinot
+  submitted_at: '2026-10-17T00:42:51Z'
+  issue_title_sha256: 2c4e356b2e0b18c0f6940ee2a367842a273d3aa1353926a66291e452d514a425
+  issue_body_sha256: 9c241b00aa887713ea861541ec897677f0f06c423bca105cf1da688800dd394f
