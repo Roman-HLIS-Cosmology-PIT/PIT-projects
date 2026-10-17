@@ -7,6 +7,10 @@ inputs:
   sc_team_read_token:
     description: Read-only organization membership token
     required: true
+  slack_app_id:
+    description: Slack app setting passed explicitly by the calling workflow
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -47,13 +51,30 @@ runs:
     shell: bash
     id: policy
   - name: Queue Slack sync for the validated submission PR
-    if: success() && vars.SLACK_APP_ID != '' && steps.policy.outputs.slack_review == 'true'
+    if: success()
     shell: bash
     env:
       GH_TOKEN: ${{ github.token }}
       REVIEW_PR: ${{ inputs.pr_number }}
+      SLACK_APP_ID: ${{ inputs.slack_app_id }}
+      SLACK_REVIEW: ${{ steps.policy.outputs.slack_review }}
     run: |
       set -euo pipefail
+      if [[ -z "$SLACK_APP_ID" ]]; then
+        echo "Slack sync disabled: SLACK_APP_ID is empty in the calling workflow."
+        exit 0
+      fi
+      case "$SLACK_REVIEW" in
+        true) ;;
+        false)
+          echo "Slack sync not needed: policy validated a PR other than an EP proposal or CPP claim."
+          exit 0
+          ;;
+        *)
+          echo "::error::Policy validation did not supply its Slack routing output; no sync was queued."
+          exit 1
+          ;;
+      esac
       if [[ ! "$REVIEW_PR" =~ ^[1-9][0-9]*$ ]]; then
         echo "::error::Invalid review PR number"
         exit 1

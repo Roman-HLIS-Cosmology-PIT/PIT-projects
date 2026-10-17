@@ -85,6 +85,7 @@ jobs:
         with:
           pr_number: ${{ steps.submission.outputs.pr_number }}
           sc_team_read_token: ${{ secrets.SC_TEAM_READ_TOKEN }}
+          slack_app_id: ${{ vars.SLACK_APP_ID }}
 
   validate:
     name: Validate project policy
@@ -132,3 +133,4 @@ jobs:
         with:
           pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
           sc_team_read_token: ${{ secrets.SC_TEAM_READ_TOKEN }}
+          slack_app_id: ${{ vars.SLACK_APP_ID }}
