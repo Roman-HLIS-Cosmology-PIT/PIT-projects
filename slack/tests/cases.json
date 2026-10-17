@@ -1,0 +1,15 @@
+[
+  {"name":"below quorum", "members":6,"events":[["a","vote:accept"]],"expect":"waiting"},
+  {"name":"accept majority with abstention", "members":6,"events":[["a","vote:accept"],["b","vote:accept"],["c","vote:refuse"],["d","vote:abstain"]],"expect":"accept"},
+  {"name":"refuse majority", "members":5,"events":[["a","vote:refuse"],["b","vote:refuse"],["c","vote:accept"]],"expect":"refuse"},
+  {"name":"tie at quorum", "members":3,"events":[["a","vote:accept"],["b","vote:refuse"]],"expect":"waiting"},
+  {"name":"only abstentions", "members":3,"events":[["a","vote:abstain"],["b","vote:abstain"]],"expect":"waiting"},
+  {"name":"changed vote is one person", "members":3,"events":[["a","vote:accept"],["a","vote:refuse"]],"expect":"waiting"},
+  {"name":"synthetic accept", "members":10,"events":[["a","test:accept"]],"expect":"accept"},
+  {"name":"synthetic refuse", "members":10,"events":[["a","test:refuse"]],"expect":"refuse"},
+  {"name":"synthetic abstain", "members":10,"events":[["a","test:abstain"]],"expect":"waiting"},
+  {"name":"real vote clears simulation", "members":10,"events":[["a","test:accept"],["b","vote:abstain"]],"expect":"waiting"},
+  {"name":"instant override without quorum", "members":10,"events":[["a","force:accept"]],"expect":"accept"},
+  {"name":"latest override wins", "members":10,"events":[["a","force:accept"],["a","force:refuse"]],"expect":"refuse"},
+  {"name":"disabled test controls", "members":10,"test_buttons":false,"events":[["a","test:accept"]],"expect":"waiting"}
+]

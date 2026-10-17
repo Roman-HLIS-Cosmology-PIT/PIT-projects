@@ -4,3 +4,7 @@ __pycache__/
 build/
 
 .DS_Store
+slack/.env
+slack/.slack/apps.json
+slack/.slack/config.json
+slack/.slack/logs/

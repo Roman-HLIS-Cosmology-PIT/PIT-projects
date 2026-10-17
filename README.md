@@ -8,6 +8,12 @@ Project proposals are submitted through a GitHub Issue Form and reviewed through
 
 [Claim an available CPP](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/issues/new?template=claim-cpp.yml)
 
+## Slack SC review
+
+The optional [Slack app and installation/maintenance guide](slack/README.md) publish valid new EPs and CPP claims in the private `test-pit-projects` channel. CPP declarations produce no Slack notification. Embedded Accept, Refuse and Abstain buttons update the original message. GitHub checks participation and applies decisions at midnight UTC, or through **Actions → Slack project review → Run workflow**. Thread commands `!force-accept` and `!force-refuse` request an immediate check, subject to Actions queue time and existing repository protections.
+
+The SC size comes from the configured GitHub team; quorum is `floor(members / 2) + 1`. Valid proposal changes post a new information snapshot in the thread and reset votes. The testing version also has three clearly labeled synthetic-quorum buttons. Installation and deployment remain manual; GitHub never deploys or deletes Slack apps.
+
 ## Submission and review
 
 1. Use the Issue title as the project title. Enter the required lead name, GitHub username, description and PhD answer. Ordinary members must submit as their own lead; SC members may submit on another person's behalf.
