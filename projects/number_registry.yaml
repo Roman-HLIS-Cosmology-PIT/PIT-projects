@@ -20,3 +20,8 @@ allocations:
   working_group: CPIP
   submitted_at: '2026-10-18T04:24:40Z'
   assigned_at: '2026-10-18T04:25:52Z'
+- project_id: P000067
+  project_number: SCM3
+  working_group: SCM
+  submitted_at: '2026-10-18T04:29:16Z'
+  assigned_at: '2026-10-18T04:33:00Z'
