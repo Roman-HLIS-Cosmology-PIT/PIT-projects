@@ -14,6 +14,10 @@ first lead, title. The number and title link to the project's page. Navigation
 links appear at the top of every generated page. Browser Find works on the
 current page; there are no custom JavaScript filters.
 
+Rows in each table are sorted by status: Open, Active, Internal review, Paused,
+then Completed. Within each status, rows retain working-group and numeric
+project-number order (for example SCM2 before SCM10).
+
 All project tables use the same single-part status badges as project pages;
 the badges contain the status text without a separate "status" label.
 
@@ -27,8 +31,8 @@ in the URL; no project details or credentials are sent to that service.
 | `open` | Open, white | Accepted CPP awaiting a lead |
 | `active` | Active, green | Work in progress |
 | `IR` | Internal review, orange | Internal review of the project's work |
-| `completed` | Completed, blue | Work completed |
 | `paused` | Paused, grey | Work paused |
+| `completed` | Completed, blue | Work completed |
 
 Open CPPs have a general **Claim a CPP** link. It opens `claim-cpp.yml` without
 prefilling a project. Assignment still requires the existing SC claim review;

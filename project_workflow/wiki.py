@@ -18,6 +18,7 @@ from project_workflow.review import link, profile, safe_text
 STATUS = {'open': ('Open', 'white'), 'active': ('Active', 'green'),
           'IR': ('Internal review', 'orange'), 'completed': ('Completed', 'blue'),
           'paused': ('Paused', 'grey')}
+STATUS_ORDER = {status: index for index, status in enumerate(('open', 'active', 'IR', 'paused', 'completed'))}
 MANIFEST = '.pit-project-pages.json'
 
 
@@ -36,7 +37,7 @@ def navigation(ctx, repo):
 
 def order(project):
     group = project['working_groups'][0]['code']
-    return group, int(project['project_number'][len(group):])
+    return STATUS_ORDER[project['status']], group, int(project['project_number'][len(group):])
 
 
 def table(projects, repo):
