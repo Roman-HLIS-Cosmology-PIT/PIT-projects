@@ -1,0 +1,30 @@
+schema_version: 1
+project_id: P000057
+name: Test project 2
+kind: EP
+status: active
+leads:
+- name: Axel 2
+  github_username: aguinottest
+contributors:
+- name: Axel G
+  github_username: aguinot
+related_links:
+- https://github.com/OWNER/REPOSITORY
+github_url: https://github.com/OWNER/REPOSITORY
+slack_channel: null
+working_groups:
+- code: CAS
+  deliverable_ids:
+  - CAS-4
+summary: |-
+  Nam congue urna eget tristique scelerisque. Vestibulum non massa ut sapien consectetur blandit. Cras ut tincidunt ligula. Aliquam nec risus sagittis, imperdiet tortor id, posuere tortor. Aliquam non lobortis lorem, eget finibus lorem. Nam vestibulum nec odio vitae malesuada. Phasellus finibus eros quis rutrum mattis. Nulla vitae magna non nisl tincidunt cursus. Aenean consectetur eros vulputate mollis ullamcorper. Curabitur vel ante eget orci laoreet iaculis quis quis libero. Suspendisse blandit ipsum a sem ullamcorper congue. Praesent egestas ac velit sed malesuada. Morbi vitae nunc a nisl faucibus venenatis mollis et lorem.
+
+  Etiam at ante nulla. Integer mattis, justo sit amet congue mattis, leo massa sollicitudin quam, quis consectetur ante neque a dui. Nullam pharetra leo tortor, in tincidunt nunc venenatis sed. Cras vitae ligula quis mauris dignissim tempor. Integer interdum lacus eget velit ornare, ut tincidunt lacus interdum. In quis sagittis lacus. Nunc id aliquet elit.
+phd_thesis: false
+submission:
+  issue_number: 57
+  submitted_by: aguinottest
+  submitted_at: '2026-10-18T03:49:28Z'
+  issue_title_sha256: 92e1d3384b6544b2ae053287371390ff6297d0034090a31cdf5cabbdb846df8e
+  issue_body_sha256: a624010c62661cd1b0223ed6530f3807a28158b94a123032b8e9732be944eae9
