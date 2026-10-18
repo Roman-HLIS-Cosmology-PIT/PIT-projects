@@ -20,4 +20,4 @@ Stay on the Issue page for the automated result. A validated submission opens a 
 
 ---
 
-This repository was developed and documented with AI assistance using GPT-6.1 Sol.
+This repository was developed and documented with AI assistance using OpenAI GPT-6.1 Sol.
