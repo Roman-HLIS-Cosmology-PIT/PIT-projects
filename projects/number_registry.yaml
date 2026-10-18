@@ -15,3 +15,8 @@ allocations:
   working_group: CAS
   submitted_at: '2026-10-18T03:49:28Z'
   assigned_at: '2026-10-18T04:04:53Z'
+- project_id: P000063
+  project_number: CPIP1
+  working_group: CPIP
+  submitted_at: '2026-10-18T04:24:40Z'
+  assigned_at: '2026-10-18T04:25:52Z'
