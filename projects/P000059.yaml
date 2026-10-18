@@ -1,0 +1,38 @@
+schema_version: 1
+project_id: P000059
+name: Validation of metadetection implementation on IMCOM coadds for the Roman Space
+  Telescope
+kind: CPP
+status: open
+leads: []
+contributors: []
+related_links: []
+github_url: https://github.com/aguinot/metacoadd
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-3
+summary: 'This project will demonstrate the capability of our implementation of metadetection
+  on IMCOM coadds. There will be 2 main goals: validate our implementation of metadetection
+  and validate IMCOM coadds as input images for shape measurement. Due to lack of
+  support of python packages originally developed for DES for the duration of the
+  Roman mission, the challenge in adding Roman-specific features to the existing implementation
+  and to prepare the future development of MetaCoaddition, we have decided to make
+  our own customizable implementation of MetaDetection. The first part of the project
+  will consist of preliminary work to validate the method through basic comparison
+  tests with the DES/LSST version of metadetection to validate our work and complementary
+  tests on simple simulations. The second and main part of the project, which is Roman
+  focused, will attempt to validate the IMCOM coadds as reliable input images for
+  shear measurement. We will use the existing 5deg2 simulation (and any new run before
+  the paper is published). The test will focus on the simulated layers with grid simulation
+  to test over-sampling, PSF gaussianization and impact of IMCOM noise properties.
+  We will complement the test by the processing of the “science layer” to provide
+  preliminary numbers on what to expect with future Roman observations: galaxy density,
+  shape noise, additive bias, B-modes, etc.'
+submission:
+  issue_number: 59
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T03:51:26Z'
+  issue_title_sha256: e8494b6e078f484a0d196744b5f6996001a27fc5fec685e171bb95c83aa18b48
+  issue_body_sha256: e874102d1b5cf62c84632191f472fb4a3dd7743850dc6d18239c95f7a3411505
