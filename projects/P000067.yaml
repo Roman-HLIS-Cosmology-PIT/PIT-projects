@@ -1,0 +1,28 @@
+schema_version: 1
+project_id: P000067
+name: This is test 3
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-1
+summary: In hac habitasse platea dictumst. Cras vitae eros vitae nisi facilisis rutrum
+  eget at est. Etiam tempus quam vel lacus cursus tristique. Donec posuere massa eget
+  tellus mattis, vel lacinia urna eleifend. Donec pretium turpis dolor, et tincidunt
+  dui feugiat non. Nullam lacinia neque non mi feugiat, nec maximus quam aliquet.
+  Nunc in sollicitudin tortor.
+phd_thesis: false
+submission:
+  issue_number: 67
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T04:29:16Z'
+  issue_title_sha256: 2e957045e4fd7105705869b95f15d16531e8310970bfe9d9ec0bfd355bbe1719
+  issue_body_sha256: 4f332cf1ce9b2e7b9be3096e534a81990989f379685b1ea82387c69aad1ef073
