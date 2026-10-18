@@ -2,7 +2,7 @@ schema_version: 1
 project_id: P000055
 name: This is a test project
 kind: EP
-status: active
+status: IR
 leads:
 - name: Axel G
   github_username: aguinot
@@ -29,3 +29,9 @@ submission:
   issue_title_sha256: cb9830eae353e51c2056f8d8c473bccc9bde240956dcf46c30e5b5624deaa5d0
   issue_body_sha256: ec4315deb3ce4efaa171a03a340622a3675316dc8334c16207a17ab80c1ccc05
 project_number: SCM2
+updates:
+- issue_number: 65
+  author_id: 39480528
+  submitted_by: aguinot
+  applied_at: '2026-10-18T04:26:50Z'
+  body_sha256: c27a030355dc0eae8641976fff256b0bb92cc67d71012ff3705f63f8f8e247c0
