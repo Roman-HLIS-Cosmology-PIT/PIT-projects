@@ -3,8 +3,10 @@ project_id: P000059
 name: Validation of metadetection implementation on IMCOM coadds for the Roman Space
   Telescope
 kind: CPP
-status: open
-leads: []
+status: active
+leads:
+- name: Axel Guinot
+  github_username: aguinot
 contributors: []
 related_links: []
 github_url: https://github.com/aguinot/metacoadd
@@ -37,3 +39,10 @@ submission:
   issue_title_sha256: e8494b6e078f484a0d196744b5f6996001a27fc5fec685e171bb95c83aa18b48
   issue_body_sha256: e874102d1b5cf62c84632191f472fb4a3dd7743850dc6d18239c95f7a3411505
 project_number: SCM1
+claim:
+  issue_number: 61
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T03:54:00Z'
+  issue_title_sha256: 7b77687c02ff5f22b3716b5e9f51bfa45937c45cff86084f58b24f4cf5384121
+  issue_body_sha256: 5308d386ed50cf6a838b9a8c08f9b15fee6c6abb748bf39cb6c7deee38a51da0
+  base_sha256: 6ec504ee5e4fbe30dbb5633db95485a76708eb9b61ef9b2c560eac0c5df4f942
