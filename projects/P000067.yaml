@@ -2,7 +2,7 @@ schema_version: 1
 project_id: P000067
 name: This is test 3
 kind: EP
-status: active
+status: paused
 leads:
 - name: Axel G
   github_username: aguinot
@@ -27,3 +27,9 @@ submission:
   issue_title_sha256: 2e957045e4fd7105705869b95f15d16531e8310970bfe9d9ec0bfd355bbe1719
   issue_body_sha256: 4f332cf1ce9b2e7b9be3096e534a81990989f379685b1ea82387c69aad1ef073
 project_number: SCM3
+updates:
+- issue_number: 69
+  author_id: 39480528
+  submitted_by: aguinot
+  applied_at: '2026-10-18T04:34:03Z'
+  body_sha256: dec8f22684f73fa9d85aaaac83f8d34126cd5637156e618392c1d061b9aca7c5
