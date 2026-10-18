@@ -30,7 +30,7 @@ body:
     multiple: false
     description: Select exactly one project. Availability is checked again on submission.
     options:
-    - No CPP projects available
+    - SCM1 — Validation of metadetection implementation on IMCOM coadds for the Roman Space Telescope
   validations:
     required: true
 - type: input
