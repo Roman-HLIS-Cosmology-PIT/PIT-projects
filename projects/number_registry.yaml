@@ -1,2 +1,7 @@
 schema_version: 1
-allocations: []
+allocations:
+- project_id: P000059
+  project_number: SCM1
+  working_group: SCM
+  submitted_at: '2026-10-18T03:51:26Z'
+  assigned_at: '2026-10-18T03:52:35Z'
