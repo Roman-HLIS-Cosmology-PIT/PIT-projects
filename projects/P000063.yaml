@@ -1,0 +1,21 @@
+schema_version: 1
+project_id: P000063
+name: Test CPP
+kind: CPP
+status: open
+leads: []
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CPIP
+  deliverable_ids:
+  - CPI-4
+summary: Test of a CPP CPIP project
+submission:
+  issue_number: 63
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T04:24:40Z'
+  issue_title_sha256: 81a8340bfc7238af26d67456ee1dbb9bc7f3dc689f9f6aab2f7b7854cad23103
+  issue_body_sha256: 67debec936ffdc252aed407cc4b8065e2a8fd2f7b4d52f99b5741e0916e1affe
