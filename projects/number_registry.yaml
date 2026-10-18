@@ -25,3 +25,8 @@ allocations:
   working_group: SCM
   submitted_at: '2026-10-18T04:29:16Z'
   assigned_at: '2026-10-18T04:33:00Z'
+- project_id: P000070
+  project_number: CAS2
+  working_group: CAS
+  submitted_at: '2026-10-18T04:39:28Z'
+  assigned_at: '2026-10-18T04:42:22Z'
