@@ -26,7 +26,9 @@ authoritative if documentation diverges.
 | --- | --- |
 | Schema, form wording, kind policy, SC team and reviewers | `project_workflow/config.yaml` |
 | Working groups and deliverables | `working_groups/<CODE>.yaml` |
-| Accepted projects | `projects/<ID>.yaml` on `main` |
+| Accepted projects | `projects/<ID>.yaml` on `main`; permanent `project_number` allocated after acceptance |
+| Number history | `projects/number_registry.yaml`; append allocations, never reuse numbers |
+| Wiki and automatic updates | `project_workflow/accepted.py`, `updates.py`, `wiki.py`; see `WIKI.md` |
 | Commands, syntax, help and replay | `project_workflow/commands.py` |
 | Event routing and job permissions | `.github/workflows/*.yml` |
 | Slack channel and test controls | `slack/channel.ts` plus matching GitHub variables |
@@ -73,3 +75,15 @@ PR policy executes the accepted base implementation. A newly supported schema
 or data layout may require merging validator support first, then rebasing its
 dependent content PR. Never execute proposed validator code to make its own PR
 pass. Describe this dependency in the handoff if it applies.
+
+## Accepted project publication and updates
+
+See [wiki architecture and setup](project_workflow/WIKI.md). Enforce exactly one
+WG. Permanent WG numbers are allocated only from accepted main, atomically with
+an append-only allocation ledger. Internal IDs remain stable for claim replay.
+Author updates use live lead/SC authorization on the exact selected accepted
+project; recheck Issue/main freshness and roles immediately before publication.
+Do not create PRs or request human reviews for these automatic updates. Preserve
+at least one lead and protect open CPP assignment through the SC claim process.
+Retain update receipts and distinguish refusal from retryable delivery failure.
+The wiki is a projection, never the source of author-maintained information.

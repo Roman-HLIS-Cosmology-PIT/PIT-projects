@@ -29,11 +29,11 @@ organization-level restriction must be resolved by an administrator.
 | --- | --- | --- |
 | SC authorization team | `Roman-HLIS-Cosmology-PIT/steering-committee` in `config.yaml` | Confirm the team slug and active membership |
 | Requested reviewers | `[aguinot]` in `config.yaml` | Retain during testing; choose `reviewers: steering_committee` when intentionally switching routing |
-| Submission labels | `new-project`, `new-cpp-project`, `claim-cpp` | Create all three repository labels before using forms |
+| Submission labels | `new-project`, `new-cpp-project`, `claim-cpp` | Create the three submission labels; maintenance ensures `project-update` exists |
 | Rejection label | `invalid` | Automation creates it if needed |
-| Forms / CODEOWNERS | Three `.github/ISSUE_TEMPLATE/*.yml` files and `.github/CODEOWNERS` | Generate from source, never maintain separately |
+| Forms / CODEOWNERS | Four `.github/ISSUE_TEMPLATE/*.yml` files and `.github/CODEOWNERS` | Generate from source, never maintain separately |
 | Working groups | Root `working_groups/*.yaml` | Check IDs, descriptions and deliverables |
-| Accepted registry | Root `projects/P<digits>.yaml` | Preserve IDs, scientific content and provenance |
+| Accepted registry | Root `projects/P<digits>.yaml` and `number_registry.yaml` | Preserve internal IDs, permanent WG numbers, allocation history and provenance |
 | Slack review channel | `test-pit-projects` in `slack/channel.ts` | Follow the separate Slack guide; do not assume live variables match |
 
 Reviewer routing and SC authorization are independent. Changing the reviewer
@@ -49,7 +49,9 @@ Set an expiry and record a rotation owner outside the repository.
 
 This credential is for organization reads. Repository writes use each job's
 scoped `GITHUB_TOKEN`; no manually stored repository-write token is required for
-normal submission processing. Do not store an SC roster in source.
+normal submission processing. Wiki publication needs `WIKI_WRITE_TOKEN`; protected
+main data writes may need an approved automation credential as `PROJECT_DATA_TOKEN`.
+See [wiki installation](WIKI.md#installation). Do not store an SC roster in source.
 
 ## 4. Merge settings and protection
 
@@ -119,3 +121,11 @@ variables/secrets. Without `SLACK_APP_ID`, Slack delivery and review jobs skip;
 GitHub submission and PR review still work.
 
 Reference: [GitHub Actions repository settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).
+
+## 8. Wiki publication and accepted-project updates
+
+Follow [WIKI.md](WIKI.md#installation) to create the initial wiki page, configure
+wiki Git credentials, check the approved automatic main-write route, and run
+maintenance. The wiki is generated from accepted records only. Author updates
+are checked automatically without review PRs or reviewer assignments. The five
+test project YAML files are removed by this installation patch as requested.

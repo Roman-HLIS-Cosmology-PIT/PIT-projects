@@ -5,6 +5,7 @@ updates proposal PRs, replays comment commands and regenerates GitHub files.
 
 | Task | Guide |
 | --- | --- |
+| Browse the wiki or update an accepted project | [Wiki and project updates](WIKI.md) |
 | Submit, claim, edit or withdraw a project | [Submission guide](SUBMISSIONS.md) |
 | Set up or audit GitHub, including existing settings | [Repository installation](INSTALLATION.md) |
 | Understand implementation and workflow architecture | [Architecture](ARCHITECTURE.md) |
@@ -33,7 +34,7 @@ python -m project_workflow.project_registry validate
 python -m project_workflow.project_registry export --output-dir build
 ```
 
-`generated_files` writes all three native Issue forms and CODEOWNERS. The export
+`generated_files` writes all four native Issue forms and CODEOWNERS. The export
 command validates once and writes `build/projects.json` and
 `build/working_groups.yaml`. `issue_form --check` checks generated form content;
 it does not publish anything. The schema uses local references only.
@@ -48,6 +49,9 @@ it does not publish anything. The schema uses local references only.
 | `sync_generated` | Regenerate main or an authorized SC PR; use a generated-file PR if main protection requires it |
 | `generated_files` | Local generation without GitHub writes |
 | `project_registry` | Local validation and catalogue exports |
+| `accepted` | Allocate permanent WG numbers on accepted main only |
+| `updates` | Authorize and atomically apply accepted-project updates without PRs |
+| `wiki` | Build wiki pages, public issue previews, and optional wiki publication |
 
 The API entry points are intended for Actions with scoped credentials and event
 context. Use [manual workflow operations](../.github/workflows/README.md) for
@@ -77,9 +81,9 @@ Adding a group requires its catalogue, not a parallel parser enum. Removing an
 in-use group or deliverable requires updating affected projects in the same change.
 
 Project YAML must satisfy the schema in `config.yaml`. Its stable `project_id`
-matches the filename. Core fields include kind, status, working-group links,
+matches the filename. Core fields include kind, status, exactly one working-group link,
 people and Markdown summary. Kinds are `EP`, `CPP`, `KEY`; statuses are `active`,
-`paused`, `IR`, `completed`. `IR` describes the project's work, not proposal
+`paused`, `IR`, `completed`, plus `open` for an unclaimed CPP. `IR` describes the project's work, not proposal
 review. EP requires at least one lead; unassigned CPP/KEY may have none.
 People are `{name, github_username}` objects. Optional fields cover Slack,
 repository, related links and PhD information where applicable.
@@ -87,7 +91,7 @@ repository, related links and PhD information where applicable.
 Generated `submission` and `claim` provenance must be retained. An accepted
 claim remains recorded even if SC later removes its leads. Do not invent or
 erase provenance to bypass policy. Prefer `status: completed` when retaining
-retired project history. Accepted changes require the SC administrative route.
+retired project history. Accepted changes use the lead/SC update form or the SC administrative route. Permanent display identifiers and allocation history are described in [WIKI.md](WIKI.md).
 
 Tests live in [tests/](tests/). They are optional maintainer checks rather than
 an additional mandatory CI suite. Select relevant coverage using the

@@ -44,7 +44,7 @@ def workflow_kind(record):
 def issue_project_path(issue, ctx):
     if submission_kind(issue) == 'CLAIM':
         from project_workflow.claims import selected_project
-        return 'projects/' + selected_project(resolved_values(issue,ctx)['claim_project']) + '.yaml'
+        return 'projects/' + selected_project(resolved_values(issue,ctx)['claim_project'], ctx) + '.yaml'
     return project_path(issue['number'])
 
 
@@ -164,8 +164,8 @@ def resolved_values(issue, ctx):
 
 def selected_groups(value, ctx):
     selected = [option_value(x.strip()) for x in optional(value).split(',') if x.strip()]
-    if len(set(selected)) != len(selected) or any(code not in ctx.working_groups for code in selected):
-        raise Invalid('Working groups: choose distinct groups from the catalogue',fields={'working_groups'})
+    if len(selected) != 1 or any(code not in ctx.working_groups for code in selected):
+        raise Invalid('Working group: choose exactly one group from the catalogue',fields={'working_groups'})
     return selected
 
 
@@ -319,7 +319,7 @@ def proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
     record = {
         'schema_version':ctx.schema['properties']['schema_version']['const'],
         'project_id':project_id(issue['number']), 'name':values['name'], 'kind':kind,
-        'status':ctx.schema['properties']['status'].get('default','active'),
+        'status':'open' if kind == 'CPP' else ctx.schema['properties']['status'].get('default','active'),
         'leads':[{'name':values['lead'],'github_username':lead}] if kind == 'EP' else [], **cleaned,
         'summary':values['summary'],
         **({'phd_thesis':booleans[values['phd_thesis']]} if kind == 'EP' else {}),

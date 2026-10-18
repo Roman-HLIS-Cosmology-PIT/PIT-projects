@@ -5,6 +5,7 @@
 | `ISSUE_TEMPLATE/new-project.yml` | EP form | No; generated |
 | `ISSUE_TEMPLATE/new-cpp-project.yml` | SC CPP declaration form | No; generated |
 | `ISSUE_TEMPLATE/claim-cpp.yml` | Available-CPP claim form | No; generated |
+| `ISSUE_TEMPLATE/update-project.yml` | Automatic lead/SC project updates | No; generated |
 | `CODEOWNERS` | Reviewer routing | No; generated |
 | `pull_request_template.md` | Human PR review checklist | Yes |
 | `workflows/` | Actions triggers, permissions and routing | Yes |

@@ -49,6 +49,7 @@ def form(ctx, kind='EP'):
     if kind not in FORM_LABELS:
         raise Invalid('Unsupported submission kind')
     spec = deepcopy(ctx.form_source)
+    spec.pop('update', None)
     variants = spec.pop('variants', {})
     if kind != 'EP':
         variant = deepcopy(variants.get(kind, {}))
@@ -94,8 +95,8 @@ def form(ctx, kind='EP'):
                         'validations':{'required':False}})
             continue
         if item.get('id') == 'working_groups':
-            if source != 'working_groups' or item.get('type') != 'dropdown' or not item['attributes'].get('multiple') or not item.get('validations',{}).get('required'):
-                raise Invalid('Working groups must be a required catalogue-backed multiple-selection dropdown')
+            if source != 'working_groups' or item.get('type') != 'dropdown' or item['attributes'].get('multiple') is not False or not item.get('validations',{}).get('required'):
+                raise Invalid('Working group must be a required catalogue-backed single-selection dropdown')
             item['attributes']['options'] = list(group_options(ctx))
         elif source is not None:
             raise Invalid('Unsupported options source')

@@ -213,9 +213,11 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(record['submission']['submitted_at'],'2026-10-11T06:00:00Z')
         self.assertEqual(parse_yaml(project_yaml(record)),record)
 
-    def test_multiple_groups_empty_deliverables_and_ignored_unchecked_values(self):
-        record=self.parse(issue_fixture(working_groups='SCM — Shape and Color Measurement, CAS — Catalogue And Statistics',deliverables_SCM='_No response_',deliverables_CAS='CAS-1',deliverables_CPIP='bogus'))
-        self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':[]},{'code':'CAS','deliverable_ids':['CAS-1']}])
+    def test_single_group_empty_deliverables_and_ignored_unchecked_values(self):
+        record=self.parse(issue_fixture(working_groups='SCM — Shape and Color Measurement',deliverables_SCM='_No response_',deliverables_CAS='CAS-1',deliverables_CPIP='bogus'))
+        self.assertEqual(record['working_groups'],[{'code':'SCM','deliverable_ids':[]}])
+        with self.assertRaises(Invalid):
+            self.parse(issue_fixture(working_groups='SCM, CAS'))
 
     def test_required_fields_and_choices_fail_closed(self):
         for change in ({'lead':''},{'lead_github_username':''},{'working_groups':'_No response_'},

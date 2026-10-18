@@ -16,10 +16,10 @@ on:
         description: Operation to retry using accepted main code
         required: true
         type: choice
-        options: [validate, submit]
+        options: [validate, submit, update]
         default: validate
       issue_number:
-        description: Issue number for submit
+        description: Issue number for submit or update
         required: false
         type: string
       pr_number:
@@ -34,6 +34,8 @@ jobs:
     name: Project submission
     if: >-
       (github.event_name == 'issues' && !github.event.issue.pull_request &&
+       !contains(github.event.issue.labels.*.name, 'project-update') &&
+       github.event.label.name != 'project-update' &&
        (github.event.action != 'labeled' && github.event.action != 'unlabeled' ||
         github.event.label.name == 'new-project' || github.event.label.name == 'new-cpp-project' ||
         github.event.label.name == 'claim-cpp') &&
@@ -82,6 +84,36 @@ jobs:
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
           SUBMISSION_ISSUE_NUMBER: ${{ inputs.issue_number }}
           POLICY_INLINE: 'true'
+
+  update:
+    name: Automatically apply authorized project update
+    if: >-
+      (github.event_name == 'issues' && github.event.action == 'labeled' &&
+       !github.event.issue.pull_request && github.event.label.name == 'project-update') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'update')
+    concurrency:
+      group: project-submission-and-policy
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+      actions: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./project_workflow/setup
+      - name: Validate and apply optional changes without reviewers
+        run: python -m project_workflow.updates
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_DATA_TOKEN: ${{ secrets.PROJECT_DATA_TOKEN }}
+          SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
+          UPDATE_ISSUE_NUMBER: ${{ inputs.issue_number }}
 
   notify:
     name: Slack delivery after successful submission

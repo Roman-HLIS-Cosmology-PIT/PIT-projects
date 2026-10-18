@@ -37,8 +37,10 @@ class RegistryTests(unittest.TestCase):
         data = source_data()
         self.ctx = load_context(data.__getitem__,paths=data)
 
-    def test_multiple_groups_and_empty_deliverables(self):
+    def test_multiple_groups_rejected_and_empty_deliverables_allowed(self):
         p = project();p['working_groups'].append({'code':'CAS','deliverable_ids':[]})
+        with self.assertRaises(Invalid):validate_record(p,'projects/P001.yaml',self.ctx)
+        p['working_groups'] = [{'code':'SCM','deliverable_ids':[]}]
         validate_record(p,'projects/P001.yaml',self.ctx)
 
     def test_unknown_duplicate_and_empty_groups_rejected(self):

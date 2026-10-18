@@ -174,7 +174,7 @@ class CPPDeclarationTests(unittest.TestCase):
         self.submit()
         provenance = deepcopy(self.record()['submission'])
         requests = ('/edit title Updated CPP', '/edit description\nNew **scientific** goals.\nhttps://example.org/a/b',
-                    '/edit working-group SCM CPIP', '/edit deliverables SCM-2 CPI-1',
+                    '/edit working-group CPIP', '/edit deliverables CPI-1',
                     '/edit slack #cpp-test', '/edit github https://github.com/example/science',
                     '/edit add links https://example.org/new', '/edit remove links https://example.org/new',
                     '/edit remove slack', '/edit remove github', '/edit remove deliverables')

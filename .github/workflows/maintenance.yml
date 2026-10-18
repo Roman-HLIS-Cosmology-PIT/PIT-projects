@@ -1,6 +1,8 @@
 name: Project maintenance
 
 on:
+  schedule:
+    - cron: '17 0 * * *'
   push:
     branches: [main]
   workflow_dispatch:
@@ -23,7 +25,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      issues: read
+      issues: write # Ensure the generated update form's label exists.
       statuses: write
       actions: write
     runs-on: ubuntu-24.04
@@ -35,6 +37,23 @@ jobs:
           ref: main
           persist-credentials: false
       - uses: ./project_workflow/setup
+      - name: Ensure the automatic update form label exists
+        if: inputs.pr_number == ''
+        run: python -m project_workflow.updates --ensure-label
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Assign permanent numbers only to accepted projects
+        if: inputs.pr_number == ''
+        run: python -m project_workflow.accepted
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_DATA_TOKEN: ${{ secrets.PROJECT_DATA_TOKEN }}
+      - name: Reload numbered main for generated claim choices
+        if: inputs.pr_number == ''
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
       - run: python -m project_workflow.sync_generated
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -55,8 +74,24 @@ jobs:
         run: python -m project_workflow.validate_pr --check-team
         env:
           SC_TEAM_READ_TOKEN: ${{ secrets.SC_TEAM_READ_TOKEN }}
-      - name: Downloadable catalogue exports
+      - name: Generate accepted project wiki and repository issue snapshots
         if: inputs.pr_number == ''
+        run: python -m project_workflow.wiki --fetch-issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Publish the generated wiki
+        if: inputs.pr_number == ''
+        run: |
+          if [ -z "$WIKI_WRITE_TOKEN" ]; then
+            echo '::warning::Set WIKI_WRITE_TOKEN and create the initial wiki page to enable publication. Generated pages are in the registry-catalogues artifact.'
+          else
+            python -m project_workflow.wiki --publish-only
+          fi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WIKI_WRITE_TOKEN: ${{ secrets.WIKI_WRITE_TOKEN }}
+      - name: Downloadable catalogue exports
+        if: always() && inputs.pr_number == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: registry-catalogues

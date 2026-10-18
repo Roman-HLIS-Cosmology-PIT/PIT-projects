@@ -46,10 +46,10 @@ class GitHub:
         if not isinstance(endpoint, str) or endpoint.startswith("/") or ".." in endpoint.split("/") or "://" in endpoint:
             raise Invalid("Invalid GitHub API endpoint")
         request = urllib.request.Request(
-            f"https://api.github.com/repos/{self.repo}/{endpoint}",
+            f"https://api.github.com/repos/{self.repo}" + (f'/{endpoint}' if endpoint else ''),
             data=json.dumps(data).encode("utf-8") if data is not None else None,
             method=method,
-            headers={"Authorization": f"Bearer {self.token}",
+            headers={**({"Authorization": f"Bearer {self.token}"} if self.token else {}),
                      "Accept": "application/vnd.github+json",
                      "Content-Type": "application/json",
                      "X-GitHub-Api-Version": "2022-11-28",
@@ -181,6 +181,8 @@ def records(tree, read, ctx):
     result = {}
     for path in sorted(tree):
         if path.startswith("projects/") and path != "projects/.gitkeep":
+            if path == 'projects/number_registry.yaml':
+                continue  # Validated by load_context with ordinary-file reader checks.
             if not PROJECT_PATH.fullmatch(path):
                 raise Invalid("Unsupported file/directory in projects/")
             result[path] = parse_yaml(read(path))

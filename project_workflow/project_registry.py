@@ -210,6 +210,8 @@ def load_context(read_text: Callable[[str], str], *, paths: Iterable[str]) -> Co
             record = parse_yaml(read_text(path))
             validate_record(record, path, ctx)
             ctx.projects[record['project_id']] = record
+    from project_workflow.accepted import ledger
+    ledger(read_text, paths, ctx.projects)
     return ctx
 
 
@@ -244,6 +246,17 @@ def validate_record(record: dict, path: str, ctx: Context):
         seen.add(code)
         if set(group["deliverable_ids"]) - ctx.deliverables[code]:
             raise Invalid("Deliverables must exist in their working group's catalogue")
+    if len(record['working_groups']) != 1:
+        raise Invalid('Projects must belong to exactly one working group')
+    if 'project_number' in record and not re.fullmatch(
+            re.escape(record['working_groups'][0]['code']) + r'[1-9][0-9]*', record['project_number']):
+        raise Invalid('Project number must match its working group')
+    if record['status'] == 'open' and (record['kind'] != 'CPP' or leads):
+        raise Invalid('Only an unclaimed CPP without leads can have open status')
+    for receipt in record.get('updates', []):
+        utc_timestamp(receipt['applied_at'])
+    if len({u['issue_number'] for u in record.get('updates', [])}) != len(record.get('updates', [])):
+        raise Invalid('Project update receipts cannot repeat an Issue')
     from project_workflow.submission import https_url
     for link in record.get("related_links", []):
         https_url(link)
@@ -273,6 +286,10 @@ def authorize_change(old, new, actor: str, ctx: Context, *, organization_member:
         raise Invalid("Keep project records; use status: completed instead of deletion")
     if old is not None and old["project_id"] != new["project_id"]:
         raise Invalid("Project ID is immutable")
+    if old is not None and old.get('project_number') != new.get('project_number'):
+        raise Invalid('Permanent project number is immutable')
+    if old is not None and old.get('project_number') and old['working_groups'][0]['code'] != new['working_groups'][0]['code']:
+        raise Invalid('A numbered project cannot change its working group')
     if is_sc:
         return
     if not organization_member:
@@ -307,8 +324,10 @@ def local_records(root: Path, ctx: Context):
         path = target.relative_to(root).as_posix()
         if path == "projects/.gitkeep":
             continue
+        if path == 'projects/number_registry.yaml' and target.is_file() and not target.is_symlink():
+            continue  # load_context validates the allocation ledger separately.
         if target.is_dir() or target.is_symlink() or not PROJECT_PATH.fullmatch(path):
-            raise Invalid("projects/ must contain only ordinary project YAML files and .gitkeep")
+            raise Invalid("projects/ must contain only ordinary project YAML, number_registry.yaml and .gitkeep")
         record = parse_yaml(local_reader(root)(path))
         validate_record(record, path, ctx)
         records[path] = record

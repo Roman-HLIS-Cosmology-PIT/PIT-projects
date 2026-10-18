@@ -158,11 +158,11 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result,'edited');self.assertEqual(self.record()['summary'],text)
         self.assertEqual(self.validate(),self.record())
 
-    def test_deliverables_replace_all_and_preserve_empty_groups(self):
-        self.send('/edit working-group SCM CPIP')
-        result,_=self.send('/edit deliverables SCM-2 SCM-2 CPI-1')
+    def test_deliverables_replace_all_in_single_group(self):
+        self.assertEqual(self.send('/edit working-group SCM CPIP')[0], 'rejected')
+        result,_=self.send('/edit deliverables SCM-2 SCM-2')
         self.assertEqual(result,'edited')
-        self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-2']},{'code':'CPIP','deliverable_ids':['CPI-1']}])
+        self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-2']}])
         self.assertEqual(self.validate(),self.record())
 
     def test_invalid_edit_is_atomic_and_does_not_change_status(self):
@@ -265,9 +265,10 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(Invalid):self.validate()
 
     def test_working_group_removal_and_clear_commands(self):
-        self.send('/edit working-group SCM CPIP');self.send('/edit deliverables SCM-1 CPI-1')
+        self.send('/edit working-group CPIP');self.send('/edit deliverables CPI-1')
         self.assertEqual(self.send('/edit working-group SCM')[0],'edited')
-        self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':['SCM-1']}])
+        self.assertEqual(self.record()['working_groups'],[{'code':'SCM','deliverable_ids':[]}])
+        self.assertEqual(self.send('/edit deliverables SCM-1')[0], 'edited')
         self.assertEqual(self.send('/edit remove deliverables')[0],'edited')
         self.send('/edit github https://github.com/example/repository')
         self.assertEqual(self.send('/edit remove github')[0],'edited')

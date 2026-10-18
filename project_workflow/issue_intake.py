@@ -270,7 +270,7 @@ def process(api, teams, issue_number, *, repo_check=repository_warning, command_
         if path in base_tree and workflow_kind(record) != 'CLAIM':
             raise Invalid('The project ID already exists; it will not be overwritten')
         values = resolved_values(issue,ctx)
-        cleaned, removed = optional_fields(values,ctx)
+        cleaned, removed = optional_fields(values,ctx,codes=[] if workflow_kind(record) == 'CLAIM' else None)
         if workflow_kind(record) == 'CLAIM':
             original = ctx.projects[record['project_id']]
             if len(set(original.get('related_links',[]) + cleaned['related_links'])) > len(record['related_links']):

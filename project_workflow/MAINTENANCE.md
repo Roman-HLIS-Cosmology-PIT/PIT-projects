@@ -31,6 +31,7 @@ These are optional local maintainer checks, not an additional CI gate.
 | Change area | Relevant checks |
 | --- | --- |
 | Documentation only | Relative links/anchors, file paths, examples against actual CLI/config, Markdown structure; ensure diff contains only `.md` |
+| Accepted IDs, wiki or automatic updates | `test_accepted_wiki_updates`, plus claims/publication/pipeline checks |
 | Registry/schema/catalogues | `test_registry`, `test_generation`, `test_maintenance`; local validate and generated-form check |
 | Submission/publication | `test_issue_submission`, `test_submission_publication`, `test_review_requests`, `test_pipeline` |
 | Commands | `test_commands`, plus claim/declaration restrictions |
@@ -72,6 +73,8 @@ uses the accepted fix; rerunning an old run may reuse its old workflow definitio
 | Recorded edit not fully synchronized | Project workflows: `submit`, Issue number | Replay recorded commands and repair the same Issue/PR |
 | Independent PR check needs retry | Project workflows: `validate`, PR number | Regenerate if eligible, validate the current head from its trusted base |
 | Interrupted unmerged-PR rejection | Project workflows: `submit`, Issue number | Close linked Issue and remove only its verified proposal branch |
+| Wiki stale, or number assignment/publication interrupted | Project maintenance, blank PR number | Assign only missing numbers and refresh accepted pages |
+| Project update interrupted | Project workflows: `update`, Issue number | Recheck live permissions or reconcile an already applied receipt |
 | Stale generated forms/catalogue exports | Project maintenance, blank PR number | Maintain main; protected writes may produce the one generation PR |
 | Regenerate a particular SC PR | Project maintenance, that PR number | Append outputs to that existing branch, then request policy |
 | Missing Slack message or failed queue/delivery | Slack project review: `sync`, PR number | Retry synchronization; inspect uncertain receipts first |
@@ -120,3 +123,13 @@ quorum/override behavior and a protection-blocked merge.
 In the handoff, identify changed files, behavior, checks, skipped live checks
 and any deployment requirement. Documentation and Python/workflow changes do
 not require Slack app redeployment; deployed TypeScript/manifest changes do.
+
+## Wiki and author updates
+
+See [WIKI.md](WIKI.md). Preview locally with `python -m project_workflow.wiki
+--repo OWNER/REPO --output build/wiki`. Numbering and automatic updates commit
+only validated project data; no reviewer fallback is created. Missing wiki
+credentials leave a generated artifact; invalid configured credentials fail
+publication visibly. Repair delivery by rerunning maintenance, not by altering
+accepted data or deleting number/update receipts. Additional information must
+be edited through its source record/update form, not directly in generated pages.

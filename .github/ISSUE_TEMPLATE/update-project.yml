@@ -1,0 +1,95 @@
+# Generated from project_workflow/config.yaml; do not edit this output.
+name: Update a project
+description: Update an accepted project as a project lead or SC member.
+title: Update project
+labels:
+- project-update
+body:
+- type: markdown
+  attributes:
+    value: Update an accepted project. Only its current leads or Steering Committee members may apply changes. All
+      changes are optional and are checked automatically; no human review is requested. Blank fields preserve existing
+      values.
+- type: input
+  id: project_number
+  attributes:
+    label: Project number
+    description: Required. Use the project number supplied by its wiki page.
+  validations:
+    required: true
+- type: input
+  id: add_lead_name
+  attributes:
+    label: Add lead — name
+    description: Optional. Add one lead; supply both name and username.
+  validations:
+    required: false
+- type: input
+  id: add_lead_github_username
+  attributes:
+    label: Add lead — GitHub username
+    description: One GitHub username without @.
+  validations:
+    required: false
+- type: input
+  id: remove_lead
+  attributes:
+    label: Remove lead — GitHub username
+    description: Optional. Remove one existing lead. At least one lead must remain.
+  validations:
+    required: false
+- type: input
+  id: add_contributor_name
+  attributes:
+    label: Add contributor — name
+    description: Optional. Add one contributor; supply both name and username.
+  validations:
+    required: false
+- type: input
+  id: add_contributor_github_username
+  attributes:
+    label: Add contributor — GitHub username
+    description: One GitHub username without @.
+  validations:
+    required: false
+- type: input
+  id: remove_contributor
+  attributes:
+    label: Remove contributor — GitHub username
+    description: Optional. Remove one existing contributor.
+  validations:
+    required: false
+- type: dropdown
+  id: status
+  attributes:
+    label: Project status
+    options:
+    - No change
+    - Active
+    - Internal review
+    - Completed
+    - Paused
+    default: 0
+  validations:
+    required: false
+- type: textarea
+  id: related_links
+  attributes:
+    label: Add related links
+    description: Optional. One complete HTTPS URL per line. Existing links are retained.
+  validations:
+    required: false
+- type: input
+  id: github_url
+  attributes:
+    label: Main GitHub repository
+    description: Optional. Replace the main repository with https://github.com/OWNER/REPOSITORY.
+  validations:
+    required: false
+- type: textarea
+  id: additional_information
+  attributes:
+    label: Additional information
+    description: Optional Markdown. Replaces this section; blank preserves the existing information.
+  validations:
+    required: false

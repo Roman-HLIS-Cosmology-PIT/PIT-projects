@@ -15,7 +15,7 @@ SPECS = {
     'edit title': ('/edit title New project title', 'Replace the project, Issue and PR titles.'),
     'edit description': ('/edit description\nYour complete Markdown description', 'Replace the description with all lines after the first newline.'),
     'edit deliverables': ('/edit deliverables SCM-1 SCM-2 ...', 'Replace all deliverables.'),
-    'edit working-group': ('/edit working-group SCM CPIP', 'Replace working groups and remove deliverables for groups no longer selected.'),
+    'edit working-group': ('/edit working-group SCM', 'Replace the single working group; remove deliverables from the previous group.'),
     'edit slack': ('/edit slack #project-channel', 'Set or replace the Slack channel.'),
     'edit github': ('/edit github https://github.com/OWNER/REPOSITORY', 'Set or replace the main repository link.'),
     'edit phd': ('/edit phd true', 'Set the PhD answer: true or false.'),
@@ -170,7 +170,7 @@ def apply(record, command, ctx):
         candidate['phd_thesis']=value.lower()=='true'
     elif key=='edit working-group':
         codes=list(dict.fromkeys(value.split()))
-        if not codes or any(c not in ctx.working_groups for c in codes):raise Invalid('Select at least one valid working-group code. Use /deliverables to see the groups.')
+        if len(codes) != 1 or any(c not in ctx.working_groups for c in codes):raise Invalid('Select exactly one valid working-group code. Use /deliverables to see the groups.')
         old={g['code']:g['deliverable_ids'] for g in candidate['working_groups']}
         omitted=[i for code,ids in old.items() if code not in codes for i in ids]
         candidate['working_groups']=[{'code':c,'deliverable_ids':old.get(c,[])} for c in codes]

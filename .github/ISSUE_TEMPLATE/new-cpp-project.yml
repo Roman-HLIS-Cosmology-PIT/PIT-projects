@@ -12,9 +12,9 @@ body:
 - type: dropdown
   id: working_groups
   attributes:
-    label: Working groups
-    description: Select at least one working group. You may select several.
-    multiple: true
+    label: Working group
+    description: Select exactly one working group.
+    multiple: false
     options:
     - CAS — Catalogue And Statistics
     - CPIP — Cosmological Parameter Inference Pipeline

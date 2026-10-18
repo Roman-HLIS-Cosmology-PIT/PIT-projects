@@ -1,6 +1,6 @@
 # Submitting and managing a project
 
-Use the [links on the main page](../README.md) for the three Issue forms.
+Use the [links on the main page](../README.md) for the submission forms. Accepted projects have a separate [update form](WIKI.md#updating-an-accepted-project) linked from their wiki page.
 Repository read access and active organization membership are required; no fork
 or write permission is needed. The actual authenticated Issue author is checked,
 so entering somebody else's username does not grant their role.
@@ -17,7 +17,7 @@ Ordinary members must submit themselves as the initial lead. SC may submit on
 another lead's behalf. All editing roles require active organization membership.
 KEY projects use the SC YAML route; there is no KEY form.
 
-An EP collects a title, lead name and GitHub username, at least one working group,
+An EP collects a title, lead name and GitHub username, exactly one working group,
 description and the PhD answer currently present in the form. Optional fields
 include deliverables, Slack, repository, links and up to five contributor pairs.
 A selected group may have no deliverables. Deliverables for unselected groups
@@ -100,7 +100,7 @@ Complete replacement description, including Markdown and URLs.
 | Command family | Behavior |
 | --- | --- |
 | `/edit title`, `/edit description` | Replace the value; title also renames the Issue and PR |
-| `/edit working-group`, `/edit deliverables` | Replace the list; removing groups removes their deliverables |
+| `/edit working-group`, `/edit deliverables` | Replace the single WG, or replace its deliverables; changing WG removes the previous group’s deliverables |
 | `/edit add lead`, `/edit add contributor` | Require `name=` before `username=`; quotes around names are optional |
 | `/edit remove lead`, `/edit remove contributor` | Use exactly one `name=` or `username=` selector; ambiguous names need a username |
 | `/edit slack`, `/edit github`, `/edit phd true` | Set a field where the project kind allows it |

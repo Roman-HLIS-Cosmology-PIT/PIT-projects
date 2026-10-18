@@ -7,23 +7,27 @@ import re
 from project_workflow.project_registry import Invalid, parse_yaml, validate_record, utc_timestamp
 
 
-CLAIM_FIELDS = {'leads', 'contributors', 'slack_channel', 'github_url', 'related_links', 'claim'}
+CLAIM_FIELDS = {'leads', 'contributors', 'slack_channel', 'github_url', 'related_links', 'claim', 'status'}
 
 
 def eligible(record):
     # Retain claim provenance even if SC later removes a lead: no implicit re-release.
-    return (record.get('kind') == 'CPP' and record.get('status') == 'active'
+    return (record.get('kind') == 'CPP' and record.get('status') in {'active', 'open'}
             and not record.get('leads') and 'claim' not in record)
 
 
 def project_options(ctx):
-    return [identifier + ' — ' + ' '.join(record['name'].split())
+    return [record.get('project_number', identifier) + ' — ' + ' '.join(record['name'].split())
             for identifier, record in sorted(ctx.projects.items()) if eligible(record)]
 
 
-def selected_project(value):
+def selected_project(value, ctx=None):
     from project_workflow.issue_form import option_value
     identifier = option_value(value)
+    if ctx is not None:
+        matches = [key for key, record in ctx.projects.items() if record.get('project_number') == identifier]
+        if len(matches) == 1:
+            return matches[0]
     if not re.fullmatch(r'P[0-9]{3,}', identifier):
         raise Invalid('Select exactly one available CPP project from the dropdown')
     return identifier
@@ -40,11 +44,13 @@ def validate_claim_change(original, candidate):
         raise Invalid('This CPP is assigned, previously claimed, inactive, or no longer available')
     if not candidate.get('leads') or 'claim' not in candidate:
         raise Invalid('A CPP claim requires a lead and verified claim provenance')
+    if candidate.get('status') != 'active':
+        raise Invalid('A claimed CPP must become active')
     if candidate['claim']['base_sha256'] != fingerprint(original):
         raise Invalid('The accepted CPP changed during review; cancel this claim and submit it again')
     if any(original.get(k) != candidate.get(k) or (k in original) != (k in candidate)
            for k in (set(original) | set(candidate)) - CLAIM_FIELDS):
-        raise Invalid('A claim cannot change the project ID, kind, status, scientific definition or declaration history')
+        raise Invalid('A claim cannot change the project ID, kind, scientific definition or declaration history')
 
 
 def claim_proposal(issue, ctx, *, organization_member, is_sc, verify_summary=True):
@@ -53,7 +59,7 @@ def claim_proposal(issue, ctx, *, organization_member, is_sc, verify_summary=Tru
     if not organization_member:
         raise Invalid('The claimant must be an active organization member')
     values = resolved_values(issue,ctx)
-    identifier = selected_project(values['claim_project'])
+    identifier = selected_project(values['claim_project'], ctx)
     original = ctx.projects.get(identifier)
     if original is None:
         raise Invalid('This CPP is not in the accepted registry or has been removed')
@@ -66,6 +72,7 @@ def claim_proposal(issue, ctx, *, organization_member, is_sc, verify_summary=Tru
         raise Invalid('A member must claim a CPP with themselves as its lead')
     cleaned, _ = optional_fields(values,ctx,codes=[])
     record = deepcopy(original)
+    record['status'] = 'active'
     record['leads'] = [{'name':name, 'github_username':username}]
     people = [p for p in original['contributors'] + cleaned['contributors']
               if p['github_username'].lower() != username.lower()]

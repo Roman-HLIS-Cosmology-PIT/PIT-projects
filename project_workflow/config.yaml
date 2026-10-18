@@ -58,6 +58,34 @@ schema:
       type: string
       pattern: ^P[0-9]{3,}$
       description: Stable identifier; it must match the filename.
+    project_number:
+      type: string
+      pattern: ^[A-Z][A-Z0-9_-]*[1-9][0-9]*$
+      description: Permanent working-group identifier, assigned only after acceptance.
+    additional_information:
+      type: string
+      maxLength: 50000
+    updates:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [issue_number, author_id, submitted_by, applied_at, body_sha256]
+        properties:
+          issue_number:
+            type: integer
+            minimum: 1
+          author_id:
+            type: integer
+            minimum: 1
+          submitted_by:
+            $ref: '#/$defs/username'
+          applied_at:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$
+          body_sha256:
+            type: string
+            pattern: ^[0-9a-f]{64}$
     name:
       type: string
       minLength: 1
@@ -80,6 +108,7 @@ schema:
     status:
       type: string
       enum:
+      - open
       - active
       - paused
       - IR
@@ -191,6 +220,7 @@ schema:
       description: Verified CPP claim provenance, separate from its original declaration. Retain after acceptance.
     working_groups:
       type: array
+      maxItems: 1
       minItems: 1
       uniqueItems: true
       items:
@@ -209,7 +239,7 @@ schema:
             items:
               type: string
               minLength: 1
-      description: Selected groups from working_groups/, each with zero or more catalogue deliverables.
+      description: Exactly one group from working_groups/, with zero or more catalogue deliverables.
     leads:
       type: array
       uniqueItems: true
@@ -263,9 +293,9 @@ form:
   - type: dropdown
     id: working_groups
     attributes:
-      label: Working groups
-      description: Select at least one working group. You may select several.
-      multiple: true
+      label: Working group
+      description: Select exactly one working group.
+      multiple: false
     validations:
       required: true
     options_from: working_groups
@@ -426,3 +456,99 @@ form:
         You may need to refresh the page; this can take a few minutes.
 
         '
+
+  update:
+    name: Update a project
+    description: Update an accepted project as a project lead or SC member.
+    title: Update project
+    labels:
+    - project-update
+    body:
+    - type: markdown
+      attributes:
+        value: Update an accepted project. Only its current leads or Steering Committee members may apply
+          changes. All changes are optional and are checked automatically; no human review is requested. Blank
+          fields preserve existing values.
+    - type: input
+      id: project_number
+      attributes:
+        label: Project number
+        description: Required. Use the project number supplied by its wiki page.
+      validations:
+        required: true
+    - type: input
+      id: add_lead_name
+      attributes:
+        label: Add lead — name
+        description: Optional. Add one lead; supply both name and username.
+      validations:
+        required: false
+    - type: input
+      id: add_lead_github_username
+      attributes:
+        label: Add lead — GitHub username
+        description: One GitHub username without @.
+      validations:
+        required: false
+    - type: input
+      id: remove_lead
+      attributes:
+        label: Remove lead — GitHub username
+        description: Optional. Remove one existing lead. At least one lead must remain.
+      validations:
+        required: false
+    - type: input
+      id: add_contributor_name
+      attributes:
+        label: Add contributor — name
+        description: Optional. Add one contributor; supply both name and username.
+      validations:
+        required: false
+    - type: input
+      id: add_contributor_github_username
+      attributes:
+        label: Add contributor — GitHub username
+        description: One GitHub username without @.
+      validations:
+        required: false
+    - type: input
+      id: remove_contributor
+      attributes:
+        label: Remove contributor — GitHub username
+        description: Optional. Remove one existing contributor.
+      validations:
+        required: false
+    - type: dropdown
+      id: status
+      attributes:
+        label: Project status
+        options:
+        - No change
+        - Active
+        - Internal review
+        - Completed
+        - Paused
+        default: 0
+      validations:
+        required: false
+    - type: textarea
+      id: related_links
+      attributes:
+        label: Add related links
+        description: Optional. One complete HTTPS URL per line. Existing links are retained.
+      validations:
+        required: false
+    - type: input
+      id: github_url
+      attributes:
+        label: Main GitHub repository
+        description: Optional. Replace the main repository with https://github.com/OWNER/REPOSITORY.
+      validations:
+        required: false
+    - type: textarea
+      id: additional_information
+      attributes:
+        label: Additional information
+        description: Optional Markdown. Replaces this section; blank preserves the existing information.
+      validations:
+        required: false

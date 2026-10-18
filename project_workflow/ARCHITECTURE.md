@@ -18,8 +18,10 @@ selection. Workflow YAML and code define behavior; diagrams summarize it.
 | GitHub memberships / PRs / comments / refs | Live authorization and freshness evidence |
 | Slack datastores | Review metadata, immutable events and delivery receipts; not the accepted registry |
 
-`schema_version` is currently 1. Project IDs match `P<digits>.yaml`; declarations
-use their Issue number padded to six digits. A claim edits its existing CPP ID.
+`schema_version` is currently 1. Internal project IDs match `P<digits>.yaml`; declarations
+use their Issue number padded to six digits. Permanent display identifiers
+(`SCM1`, etc.) are allocated only after acceptance and tracked atomically in
+`projects/number_registry.yaml`. Projects belong to exactly one WG. A claim edits its existing CPP ID.
 `submission.submitted_at` is the Issue creation time, not an acceptance date.
 Claims retain original declaration provenance and add separate `claim` metadata.
 There is no saved-answer database, correction form or state branch.
@@ -38,7 +40,10 @@ complete native form body instead of truncating it.
 | `claims.py` | CPP eligibility, target fingerprint, allowed fields and live reservations |
 | `review.py` | Safe Issue/PR rendering and idempotent reviewer synchronization |
 | `validate_pr.py` | Repository API adapter, separate organization API adapter, exact-base independent PR checks and statuses |
-| `generated_files.py` | Render and compare only the native forms and CODEOWNERS |
+| `generated_files.py` | Render and compare all four native forms and CODEOWNERS |
+| `accepted.py` | Acceptance-only number allocation, ledger checks and atomic accepted-data writes |
+| `updates.py` | Prefilled optional update form, live lead/SC checks, all-or-nothing writes and replay receipts |
+| `wiki.py` | Accepted-project tables/pages, public issue snapshots, scoped wiki publication |
 | `sync_generated.py` | Trusted-main generation on main or SC PRs, with scoped protected-main fallback |
 | `dispatch.py` | Inline output handoff or explicit standalone policy dispatch |
 | `setup/action.yml` | Python 3.12 and pinned dependency cache/install |
@@ -99,7 +104,8 @@ deletes an unrelated or unexpectedly advanced branch.
 | Bot proposal PR reopened / closed unmerged | `submit` repairs or performs rejection cleanup; stale/merged events are excluded |
 | Other open/synchronized/reopened PR or base edit | `validate`; prose-only edits and closed PRs skip policy |
 | Successful submission output | `notify` depends on `submit`; use its `pr_number` and true/false Slack routing without another policy pass |
-| Main push | `maintenance.yml`; generate, reload main, export and check team access |
+| Update-form label | `projects.yml: update`; authorize the selected project, apply without review, dispatch maintenance |
+| Main push / 00:17 UTC | `maintenance.yml`; allocate missing WG numbers, generate, reload main, export, check team access and publish wiki |
 | Matching bot PR closed | `slack.yml: sync` reconciles message status |
 | 00:00 UTC / manual Slack check / thread override | `slack.yml` validates current data and can apply decisions |
 
@@ -157,10 +163,10 @@ can be recovered with `submit` on the same Issue. Commands cannot edit accepted
 records. CPP declarations prohibit people/PhD commands; claims prohibit changes
 to title, description, groups, deliverables and PhD fields.
 
-Claims require an accepted active CPP without leads or prior claim. The target
+Claims require an accepted open CPP without leads or prior claim (legacy active unassigned CPPs remain supported). The target
 fingerprint prevents overwriting SC changes during review; live reservation
 checks allow only one open claim per target. The permitted delta is people,
-Slack, repository, links and claim provenance. Rejection releases a pending
+Slack, repository, links, claim provenance and the transition to active status. Rejection releases a pending
 reservation; accepted claim provenance prevents implicit reassignment later.
 
 ## Slack data flow
@@ -239,3 +245,25 @@ rendering, command support/replay and relevant tests. To add a workflow path,
 update event routing, permission declarations and duplicate-dispatch checks.
 To change voting, keep Python and TypeScript reductions aligned through shared
 `slack/tests/cases.json`. Keep data directories free of Markdown.
+
+## Accepted project updates and wiki
+
+The complete data flow, schema, permissions, refresh behavior and installation
+requirements are in [WIKI.md](WIKI.md). The main maintenance job first allocates
+permanent WG numbers from accepted main, then regenerates forms/exports and wiki.
+Allocation and update transactions validate the entire resulting registry,
+recheck live main, and append a non-forced commit. Existing IDs never move.
+
+Update requests are bound to an authenticated live Issue author and a current
+accepted project number. The URL prefill is convenience, never authorization.
+A current lead or live SC member can apply optional fields without a review PR.
+One invalid field refuses the entire transaction. Audit receipts prevent replay
+of applied requests, including after a lost API response. Blank/identical input
+makes no project write. The update job shares the submission/policy queue and
+explicitly dispatches maintenance after applying/reconciling a change.
+
+Generated wiki content never executes requester code or embeds live frames.
+Only public repository issue titles are mirrored, because writer access is not
+proof of reader access. Private repositories remain links. Generated pages are
+tracked by a scoped manifest; unrelated wiki pages survive refreshes. Wiki Git
+publishing receives its own credential only in the publication step.

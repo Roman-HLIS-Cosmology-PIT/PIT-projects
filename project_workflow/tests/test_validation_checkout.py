@@ -42,7 +42,7 @@ sys.exit(int(os.environ['API_EXIT']))
             return result, output.read_text(), json.loads(call.read_text()) if call.exists() else None
 
     def test_dispatch_checks_out_older_pr_base_instead_of_newer_main(self):
-        self.assertNotIn('if', self.resolver)
+        self.assertEqual(self.resolver.get('if'), "inputs.prevalidated_review == ''")
         result, output, call = self.resolve()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(output, 'sha=' + 'a' * 40 + '\n')

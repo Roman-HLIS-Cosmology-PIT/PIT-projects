@@ -30,8 +30,7 @@ body:
     multiple: false
     description: Select exactly one project. Availability is checked again on submission.
     options:
-    - P000027 — Test CPP project
-    - P000047 — CPP test 2
+    - No CPP projects available
   validations:
     required: true
 - type: input

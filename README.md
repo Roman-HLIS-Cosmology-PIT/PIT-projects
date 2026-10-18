@@ -14,6 +14,6 @@ Request assignment of an accepted, unassigned CPP. Assignment takes effect after
 
 Stay on the Issue page for the automated result. A validated submission opens a review PR; merging accepts it. Include only information suitable for everyone with repository access.
 
-[Submission guide and commands](project_workflow/SUBMISSIONS.md) · [Accepted projects](projects/) · [Working groups](working_groups/)
+[Wiki and project updates](project_workflow/WIKI.md) · [Submission guide and commands](project_workflow/SUBMISSIONS.md) · [Project wiki](https://github.com/Roman-HLIS-Cosmology-PIT/PIT-projects/wiki) · [Working groups](working_groups/)
 
 [Repository setup](project_workflow/INSTALLATION.md) · [Slack installation](slack/INSTALLATION.md) · [Code and maintenance guides](project_workflow/README.md) · [AI entry point](AGENTS.md)
