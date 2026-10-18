@@ -30,7 +30,7 @@ body:
     multiple: false
     description: Select exactly one project. Availability is checked again on submission.
     options:
-    - No CPP projects available
+    - CPIP1 — Test CPP
   validations:
     required: true
 - type: input
