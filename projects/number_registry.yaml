@@ -5,3 +5,13 @@ allocations:
   working_group: SCM
   submitted_at: '2026-10-18T03:51:26Z'
   assigned_at: '2026-10-18T03:52:35Z'
+- project_id: P000055
+  project_number: SCM2
+  working_group: SCM
+  submitted_at: '2026-10-18T03:46:20Z'
+  assigned_at: '2026-10-18T04:04:53Z'
+- project_id: P000057
+  project_number: CAS1
+  working_group: CAS
+  submitted_at: '2026-10-18T03:49:28Z'
+  assigned_at: '2026-10-18T04:04:53Z'
