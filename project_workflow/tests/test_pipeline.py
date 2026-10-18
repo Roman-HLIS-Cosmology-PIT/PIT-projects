@@ -25,6 +25,53 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PipelineTests(unittest.TestCase):
+    def test_closed_pr_validation_keeps_completed_status_and_needs_no_team_token(self):
+        for merged in (None, '2026-10-18T04:03:01Z'):
+            with self.subTest(merged=merged), tempfile.TemporaryDirectory() as directory:
+                api = Mock()
+                api.get.return_value = {'state':'closed', 'merged_at':merged}
+                event, output = Path(directory)/'event.json', Path(directory)/'output'
+                event.write_text('{}')
+                with patch.dict(os.environ, {'GITHUB_EVENT_PATH':str(event),'GITHUB_OUTPUT':str(output),
+                        'GITHUB_REPOSITORY':'test-org/registry','GITHUB_TOKEN':'test','POLICY_PR_NUMBER':'56',
+                        'SC_TEAM_READ_TOKEN':''}), \
+                     patch.object(validate_pr, 'GitHub', return_value=api), \
+                     patch.object(validate_pr, 'TeamDirectory') as teams, \
+                     patch.object(validate_pr.subprocess, 'check_output') as checkout, \
+                     patch.object(sys, 'argv', ['validate_pr','--publish-status']), \
+                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(validate_pr.main(), 0)
+                api.status.assert_not_called()
+                teams.assert_not_called()
+                checkout.assert_not_called()
+                self.assertEqual(output.read_text(), 'slack_review=false\n')
+
+    def test_open_pr_does_not_take_obsolete_validation_shortcut(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)/'output'
+            with patch.dict(os.environ, GITHUB_OUTPUT=str(output)):
+                self.assertFalse(validate_pr.skip_closed_pr({'state':'open','merged_at':None}))
+            self.assertFalse(output.exists())
+
+    def test_open_submission_still_requires_and_passes_normal_policy(self):
+        api = FakeAPI()
+        teams = Teams()
+        issue_intake.process(api,teams,12,repo_check=lambda _:None)
+        with tempfile.TemporaryDirectory() as directory:
+            event, output = Path(directory)/'event.json', Path(directory)/'output'
+            event.write_text('{}')
+            with patch.dict(os.environ, {'GITHUB_EVENT_PATH':str(event),'GITHUB_OUTPUT':str(output),
+                    'GITHUB_REPOSITORY':api.repo,'GITHUB_TOKEN':'test','POLICY_PR_NUMBER':'99',
+                    'SC_TEAM_READ_TOKEN':'test'}), \
+                 patch.object(validate_pr, 'GitHub', return_value=api), \
+                 patch.object(validate_pr, 'TeamDirectory', return_value=teams), \
+                 patch.object(validate_pr.subprocess, 'check_output', return_value=BASE_SHA), \
+                 patch.object(sys, 'argv', ['validate_pr','--publish-status']), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(validate_pr.main(),0)
+            self.assertEqual(output.read_text(),'slack_review=true\n')
+            self.assertEqual(api.statuses[-1][1],'success')
+
     def pipeline(self, api, teams):
         with tempfile.TemporaryDirectory() as directory:
             event, output = Path(directory) / 'event.json', Path(directory) / 'output'

@@ -32,26 +32,33 @@ runs:
       fi
       # A dispatch uses main's SHA, which may differ from an older PR's base.
       # Resolve metadata before checkout; never select the proposed head.
-      pr_base="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${POLICY_PR_NUMBER}" \
-        --jq '.base | [.repo.full_name, .ref, .sha] | @tsv')"
-      IFS=$'\t' read -r base_repo base_ref base_sha <<< "$pr_base"
+      pr_info="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${POLICY_PR_NUMBER}" \
+        --jq '[.state, .base.repo.full_name, .base.ref, .base.sha] | @tsv')"
+      IFS=$'\t' read -r pr_state base_repo base_ref base_sha <<< "$pr_info"
+      if [[ "$pr_state" == closed ]]; then
+        echo "PR is already closed or merged; delayed policy validation is not needed."
+        echo "open=false" >> "$GITHUB_OUTPUT"
+        exit 0
+      fi
       if [[ "$base_repo" != "$GITHUB_REPOSITORY" || "$base_ref" != main ||
-            "$pr_base" != "$base_repo"$'\t'"$base_ref"$'\t'"$base_sha" ||
+            "$pr_state" != open ||
+            "$pr_info" != "$pr_state"$'\t'"$base_repo"$'\t'"$base_ref"$'\t'"$base_sha" ||
             ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
         echo "::error::PR must target this repository's main branch with a valid base commit"
         exit 1
       fi
+      echo "open=true" >> "$GITHUB_OUTPUT"
       echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
   - name: Check out trusted base; never PR head
-    if: inputs.prevalidated_review == ''
+    if: inputs.prevalidated_review == '' && steps.pr-base.outputs.open == 'true'
     uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     with:
       ref: ${{ steps.pr-base.outputs.sha }}
       persist-credentials: false
   - uses: ./project_workflow/setup
-    if: inputs.prevalidated_review == ''
+    if: inputs.prevalidated_review == '' && steps.pr-base.outputs.open == 'true'
   - run: python -m project_workflow.validate_pr --publish-status
-    if: inputs.prevalidated_review == ''
+    if: inputs.prevalidated_review == '' && steps.pr-base.outputs.open == 'true'
     env:
       GITHUB_TOKEN: ${{ github.token }}
       SC_TEAM_READ_TOKEN: ${{ inputs.sc_team_read_token }}
@@ -59,7 +66,7 @@ runs:
     shell: bash
     id: policy
   - name: Queue Slack sync for the validated submission PR
-    if: success()
+    if: success() && (inputs.prevalidated_review != '' || steps.pr-base.outputs.open == 'true')
     shell: bash
     env:
       GH_TOKEN: ${{ github.token }}

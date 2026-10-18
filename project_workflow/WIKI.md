@@ -14,6 +14,9 @@ first lead, title. The number and title link to the project's page. Navigation
 links appear at the top of every generated page. Browser Find works on the
 current page; there are no custom JavaScript filters.
 
+All project tables use the same single-part status badges as project pages;
+the badges contain the status text without a separate "status" label.
+
 Project pages show the full lead/contributor lists, catalogue deliverables,
 repository, Slack channel, description, additional information, and related
 links. Status badges are static Shields images with only status text/colour
@@ -22,9 +25,9 @@ in the URL; no project details or credentials are sent to that service.
 | Stored status | Badge | Meaning |
 | --- | --- | --- |
 | `open` | Open, white | Accepted CPP awaiting a lead |
-| `active` | Active, blue | Work in progress |
+| `active` | Active, green | Work in progress |
 | `IR` | Internal review, orange | Internal review of the project's work |
-| `completed` | Completed, green | Work completed |
+| `completed` | Completed, blue | Work completed |
 | `paused` | Paused, grey | Work paused |
 
 Open CPPs have a general **Claim a CPP** link. It opens `claim-cpp.yml` without
@@ -53,11 +56,17 @@ starts with an empty allocation ledger. It does not modify live Issues or PRs.
 
 ## Updating an accepted project
 
-Each project page has **Update this project**, opening `update-project.yml`
+Each assigned project page has **Update this project**, opening `update-project.yml`
 with `project_number` and title prefilled. GitHub cannot make that input read
 only. The workflow instead resolves the supplied number against accepted main
 and verifies the actual Issue author is a current lead of that exact project or
 an active member of the configured SC team. Other users are refused.
+
+Unclaimed CPPs show only the claim link. All update-form requests for them are
+refused, including blank requests and requests from SC members. Editing becomes
+available only after a claim is accepted. Automated wiki refreshes still run.
+GitHub has no per-page native wiki editing permissions; this restriction is
+enforced by the project update workflow.
 
 Only the number is required. Available changes are:
 

@@ -17,7 +17,7 @@ class ValidationCheckoutTests(unittest.TestCase):
         self.steps = workflow['runs']['steps']
         self.resolver = self.steps[0]
 
-    def resolve(self, *, number='36', repo='test-org/registry', ref='main', sha='a' * 40,
+    def resolve(self, *, number='36', state='open', repo='test-org/registry', ref='main', sha='a' * 40,
                 api_exit=0):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
@@ -34,7 +34,7 @@ sys.exit(int(os.environ['API_EXIT']))
             env = {**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'],
                    'GITHUB_REPOSITORY': 'test-org/registry', 'POLICY_PR_NUMBER': number,
                    'GITHUB_SHA': 'c' * 40, 'GITHUB_OUTPUT': str(output), 'GH_TOKEN': 'dummy',
-                   'API_CALL': str(call), 'API_RESPONSE': '\t'.join((repo, ref, sha)),
+                   'API_CALL': str(call), 'API_RESPONSE': '\t'.join((state, repo, ref, sha)),
                    'API_EXIT': str(api_exit)}
             result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail',
                                      '-c', self.resolver['run']],
@@ -45,13 +45,22 @@ sys.exit(int(os.environ['API_EXIT']))
         self.assertEqual(self.resolver.get('if'), "inputs.prevalidated_review == ''")
         result, output, call = self.resolve()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(output, 'sha=' + 'a' * 40 + '\n')
+        self.assertEqual(output, 'open=true\nsha=' + 'a' * 40 + '\n')
         self.assertEqual(call, ['api', 'repos/test-org/registry/pulls/36', '--jq',
-                                '.base | [.repo.full_name, .ref, .sha] | @tsv'])
+                                '[.state, .base.repo.full_name, .base.ref, .base.sha] | @tsv'])
         checkout = self.steps[1]
         self.assertEqual(checkout['with']['ref'],
                          '${{ steps.pr-base.outputs.sha }}')
         self.assertFalse(checkout['with']['persist-credentials'])
+
+    def test_closed_or_merged_pr_skips_checkout_validation_and_slack_dispatch(self):
+        # A deleted source repo or old base is harmless for an obsolete check.
+        result, output, _ = self.resolve(state='closed', sha='')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, 'open=false\n')
+        self.assertIn('already closed or merged', result.stdout)
+        for step in self.steps[1:]:
+            self.assertIn("steps.pr-base.outputs.open == 'true'", step['if'])
 
     def test_invalid_pr_number_fails_before_api_or_checkout(self):
         for number in ('', '0', '-1', '36/commits', '36; echo injected'):
@@ -62,7 +71,7 @@ sys.exit(int(os.environ['API_EXIT']))
                 self.assertIsNone(call)
 
     def test_untrusted_base_or_invalid_sha_cannot_be_checked_out(self):
-        for changes in ({'repo': 'other/repo'}, {'ref': 'untrusted-branch'},
+        for changes in ({'state':'unknown'}, {'repo': 'other/repo'}, {'ref': 'untrusted-branch'},
                         {'sha': ''}, {'sha': 'main'}, {'sha': 'a' * 40 + '\nsha=bad'}):
             with self.subTest(changes=changes):
                 result, output, _ = self.resolve(**changes)

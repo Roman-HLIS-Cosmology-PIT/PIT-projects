@@ -110,7 +110,8 @@ class DispatchTests(unittest.TestCase):
         self.assertFalse(self.saved().get('dispatches'))
 
     def test_dispatch_is_after_validation_and_manual_schedule_are_preserved(self):
-        self.assertEqual(self.step['if'], 'success()')
+        self.assertEqual(self.step['if'],
+            "success() && (inputs.prevalidated_review != '' || steps.pr-base.outputs.open == 'true')")
         self.assertEqual(self.job['permissions']['actions'], 'write')
         steps = self.steps
         policy = next(i for i, step in enumerate(steps)

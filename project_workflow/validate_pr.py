@@ -214,6 +214,17 @@ def validate_snapshot(base_tree, head_tree, base_read, head_read, author, *, sc_
     return len(new)
 
 
+def skip_closed_pr(pr):
+    """A queued check is obsolete after acceptance/rejection, not a failed policy."""
+    if pr.get('state', 'open') == 'open' and not pr.get('merged_at'):
+        return False
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+            output.write('slack_review=false\n')
+    print('PR is already closed or merged; delayed policy validation skipped.')
+    return True
+
+
 def main():
     api = None
     status_sha = None
@@ -233,12 +244,12 @@ def main():
         if type(number) is not int or number < 1:
             raise Invalid("Invalid PR number")
         pr = api.get(f"pulls/{number}")
+        if skip_closed_pr(pr):
+            return 0
         status_sha = pr["head"]["sha"]
         if publish:
             api.status(status_sha, "pending", "Checking current proposal and requester permissions")
         team_api = TeamDirectory(os.environ.get("SC_TEAM_READ_TOKEN", ""))
-        if pr.get("state", "open") != "open":
-            raise Invalid("PR is no longer open")
         if pr["base"]["repo"]["full_name"] != api.repo or pr["base"]["ref"] != "main":
             raise Invalid("Project PRs must target this repository's main branch")
         if pr["head"]["repo"]["full_name"] != api.repo:
@@ -275,6 +286,8 @@ def main():
         else:
             count = validate_snapshot(base_tree, head_tree, base_read, head_read, pr["user"]["login"], sc_lookup=team_api.is_active_member)
         latest = api.get(f"pulls/{number}")
+        if skip_closed_pr(latest):
+            return 0
         if any(latest[side]["sha"] != pr[side]["sha"] for side in ("base", "head")):
             raise Invalid("PR changed during validation; rerun the check")
         if issue is not None:
@@ -303,6 +316,11 @@ def main():
     except (Invalid, OSError, ValueError, KeyError, TypeError, RecursionError) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
     if publish and api is not None and status_sha is not None:
+        try:
+            if skip_closed_pr(api.get(f'pulls/{number}')):
+                return 0
+        except (OSError, ValueError, Invalid):
+            pass  # An unavailable live read cannot turn a real policy failure into success.
         try:
             api.status(status_sha, "failure", "Policy validation failed; see the workflow log or submission Issue")
         except (OSError, ValueError, Invalid):

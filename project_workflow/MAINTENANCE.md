@@ -133,3 +133,9 @@ credentials leave a generated artifact; invalid configured credentials fail
 publication visibly. Repair delivery by rerunning maintenance, not by altering
 accepted data or deleting number/update receipts. Additional information must
 be edited through its source record/update form, not directly in generated pages.
+
+A queued validation can run after Slack accepts or refuses its PR. Such a check
+now exits successfully without changing Project policy or dispatching Slack.
+For an older red run that reports "PR is no longer open", confirm the PR was
+merged/closed and maintenance succeeded. Start fresh operations on main after
+installing this fix; an old run can still execute an older action definition.

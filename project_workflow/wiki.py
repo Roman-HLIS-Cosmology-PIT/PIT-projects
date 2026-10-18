@@ -15,15 +15,15 @@ import urllib.error
 from project_workflow.project_registry import Invalid, load_local_context
 from project_workflow.review import link, profile, safe_text
 
-STATUS = {'open': ('Open', 'white'), 'active': ('Active', 'blue'),
-          'IR': ('Internal review', 'orange'), 'completed': ('Completed', 'green'),
+STATUS = {'open': ('Open', 'white'), 'active': ('Active', 'green'),
+          'IR': ('Internal review', 'orange'), 'completed': ('Completed', 'blue'),
           'paused': ('Paused', 'grey')}
 MANIFEST = '.pit-project-pages.json'
 
 
 def badge(status):
     label, color = STATUS[status]
-    query = urlencode({'label': 'status', 'message': label, 'color': color})
+    query = urlencode({'label': '', 'message': label, 'color': color})
     return f'![{label}](https://img.shields.io/static/v1?{query})'
 
 
@@ -47,7 +47,7 @@ def table(projects, repo):
         page = f'https://github.com/{repo}/wiki/{identifier}'
         lead = project['leads'][0] if project['leads'] else None
         rows.append('| ' + ' | '.join([
-            f'[{identifier}]({page})', safe_text(STATUS[project['status']][0]),
+            f'[{identifier}]({page})', badge(project['status']),
             safe_text(project['working_groups'][0]['code']), safe_text(project['kind']),
             safe_text(lead['name']) + ' · ' + profile(lead['github_username']) if lead else '—',
             f'[{safe_text(project["name"])}]({page})']) + ' |')
@@ -103,9 +103,11 @@ def project_page(project, ctx, repo, nav, issues, now):
     identifier = project['project_number']
     update = f'https://github.com/{repo}/issues/new?' + urlencode({
         'template': 'update-project.yml', 'project_number': identifier, 'title': f'Update {identifier}'})
-    rows = [nav, '', f'# {identifier} — {safe_text(project["name"])}', '', badge(project['status']), '',
-            f'[Update this project]({update})', '']
-    if project['status'] == 'open' and project['kind'] == 'CPP' and not project['leads']:
+    rows = [nav, '', f'# {identifier} — {safe_text(project["name"])}', '', badge(project['status']), '']
+    unclaimed = project['kind'] == 'CPP' and not project['leads']
+    if not unclaimed:
+        rows += [f'[Update this project]({update})', '']
+    if unclaimed and project['status'] in {'open', 'active'} and 'claim' not in project:
         rows += [f'[Claim a CPP](https://github.com/{repo}/issues/new?template=claim-cpp.yml)', '']
     rows += [f'**Project kind:** {safe_text(project["kind"])}', '']
     if 'phd_thesis' in project:

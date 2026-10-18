@@ -267,3 +267,10 @@ Only public repository issue titles are mirrored, because writer access is not
 proof of reader access. Private repositories remain links. Generated pages are
 tracked by a scoped manifest; unrelated wiki pages survive refreshes. Wiki Git
 publishing receives its own credential only in the publication step.
+
+Delayed policy jobs resolve the live PR state before selecting a trusted base.
+Closed or merged PRs skip checkout, policy execution and Slack dispatch. The
+Python validator also checks live state before writing a pending status, and
+before publishing its result, so obsolete checks preserve terminal statuses.
+Unclaimed CPPs reject all update-form requests, including requests from SC;
+claim acceptance is required before author updates become available.

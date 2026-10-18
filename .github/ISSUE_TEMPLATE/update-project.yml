@@ -8,8 +8,8 @@ body:
 - type: markdown
   attributes:
     value: Update an accepted project. Only its current leads or Steering Committee members may apply changes. All
-      changes are optional and are checked automatically; no human review is requested. Blank fields preserve existing
-      values.
+      changes are optional and are checked automatically; no human review is requested. Unclaimed CPPs must be claimed
+      before any updates are accepted. Blank fields preserve existing values.
 - type: input
   id: project_number
   attributes:

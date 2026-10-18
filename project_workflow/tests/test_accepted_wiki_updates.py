@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from project_workflow import accepted, updates, wiki
 from project_workflow.generated_files import render as generated
@@ -249,6 +250,22 @@ class AutomaticUpdateTests(unittest.TestCase):
             self.send(Teams(sc=True), 'sc-user', add_lead_name='Jane Smith', add_lead_github_username='janesmith')
         self.assertEqual(current_ctx(self.api).projects['P000012']['status'], 'open')
 
+    def test_every_update_to_unclaimed_cpp_is_refused_for_members_and_sc(self):
+        changes = ({}, {'status':'Active'}, {'additional_information':'Progress'},
+                   {'related_links':'https://example.org/new'}, {'github_url':'https://github.com/example/new'},
+                   {'add_contributor_name':'Jane Smith','add_contributor_github_username':'janesmith'},
+                   {'remove_lead':'alice'}, {'remove_contributor':'bob'},
+                   {'add_lead_name':'Jane Smith','add_lead_github_username':'janesmith'})
+        for is_sc in (False, True):
+            self.api = accepted_api('CPP'); self.ctx = current_ctx(self.api)
+            self.api.writes.clear()
+            before = self.api.refs['main']
+            for fields in changes:
+                with self.subTest(sc=is_sc, fields=fields), self.assertRaisesRegex(updates.Refused,'unclaimed CPP'):
+                    self.send(Teams(sc=is_sc), 'sc-user' if is_sc else 'alice', **fields)
+            self.assertEqual(self.api.refs['main'], before)
+            self.assertFalse(self.api.writes)
+
 
 class WikiTests(unittest.TestCase):
     def test_pages_have_requested_tables_links_badges_and_preserved_markdown(self):
@@ -262,14 +279,28 @@ class WikiTests(unittest.TestCase):
         self.assertLess(pages['Home.md'].index('## CPP projects'), pages['Home.md'].index('## EP projects'))
         self.assertIn('Project number | Project status | Working group | Project kind | Project lead | Project title', pages['Home.md'])
         self.assertIn('Alice Example', pages['Home.md'])
-        self.assertIn(' | Active | ', pages['Home.md'])
+        self.assertIn(wiki.badge('active'), pages['Home.md'])
         self.assertNotIn('Bob Example', pages['Home.md'])
         self.assertNotIn('Shape measurement validation', pages['WG-CAS.md'])
-        self.assertIn('color=blue', pages['SCM1.md'])
+        self.assertIn('color=green', pages['SCM1.md'])
         self.assertIn('project_number=SCM1', pages['SCM1.md'])
         self.assertIn('**Progress**', pages['SCM1.md'])
         self.assertLess(pages['SCM1.md'].index('## Project description'), pages['SCM1.md'].index('## Additional information'))
         self.assertNotIn('<iframe', pages['SCM1.md'])
+
+    def test_status_badges_have_only_status_text_and_requested_colors_everywhere(self):
+        api = accepted_api(); ctx = current_ctx(api)
+        for status, (message, color) in {'open':('Open','white'), 'active':('Active','green'),
+                'completed':('Completed','blue'), 'IR':('Internal review','orange'), 'paused':('Paused','grey')}.items():
+            with self.subTest(status=status):
+                ctx.projects['P000012']['status'] = status
+                badge = wiki.badge(status)
+                url = badge.split('](',1)[1][:-1]
+                self.assertEqual(parse_qs(urlsplit(url).query, keep_blank_values=True),
+                                 {'label':[''], 'message':[message], 'color':[color]})
+                pages = wiki.render(ctx, api.repo)
+                for page in ('Home.md','EP.md','WG-SCM.md','SCM1.md'):
+                    self.assertIn(badge, pages[page])
 
     def test_open_cpp_claim_link_does_not_prefill_project(self):
         api = accepted_api('CPP')
@@ -277,6 +308,11 @@ class WikiTests(unittest.TestCase):
         self.assertIn('color=white', pages['SCM1.md'])
         self.assertIn('/issues/new?template=claim-cpp.yml)', pages['SCM1.md'])
         self.assertNotIn('claim_project=', pages['SCM1.md'])
+        self.assertNotIn('Update this project', pages['SCM1.md'])
+        self.assertNotIn('update-project.yml', pages['SCM1.md'])
+        ctx = current_ctx(api)
+        ctx.projects['P000012'].update(status='active', leads=[{'name':'Alice','github_username':'alice'}])
+        self.assertIn('Update this project', wiki.render(ctx,api.repo)['SCM1.md'])
 
     def test_unaccepted_unumbered_records_are_not_displayed(self):
         data = source_data(); ctx = load_context(data.__getitem__, paths=data)

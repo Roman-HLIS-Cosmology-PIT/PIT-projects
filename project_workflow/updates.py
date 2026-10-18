@@ -80,7 +80,13 @@ def answers(body, ctx):
     return values
 
 
+def require_claimed(record):
+    if record['kind'] == 'CPP' and not record['leads']:
+        raise Invalid('Updates to an unclaimed CPP are refused for everyone, including SC. Claim the project first.')
+
+
 def authorized(record, user, ctx, teams):
+    require_claimed(record)
     if (user.get('type') != 'User' or type(user.get('id')) is not int or user['id'] < 1
             or not isinstance(user.get('login'), str) or not USERNAME.fullmatch(user['login'])):
         raise Invalid('Updates require an authenticated GitHub user')
@@ -92,6 +98,7 @@ def authorized(record, user, ctx, teams):
 
 def apply(record, values, ctx):
     """Validate every operation before any write; a failed field rejects all changes."""
+    require_claimed(record)
     candidate = deepcopy(record)
     for role, field in (('lead', 'leads'), ('contributor', 'contributors')):
         name = values.get(f'add_{role}_name', '')
@@ -122,10 +129,6 @@ def apply(record, values, ctx):
         raise Invalid('Choose a status from the dropdown')
     if STATUS_OPTIONS[status] is not None:
         candidate['status'] = STATUS_OPTIONS[status]
-    if record['kind'] == 'CPP' and not record['leads']:
-        # Assignment of an open CPP must follow the SC claim workflow.
-        if candidate['leads'] or candidate['status'] != 'open':
-            raise Invalid('Claim this open CPP through the claim form before updating its leads or status')
     for field in ('github_url', 'additional_information'):
         if values.get(field):
             candidate[field] = values[field]
