@@ -1,0 +1,30 @@
+schema_version: 1
+project_id: P000055
+name: This is a test project
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors:
+- name: Axel 2
+  github_username: aguinottest
+related_links:
+- https://github.com/aguinot/metacoadd
+github_url: https://github.com/aguinot/metacoadd
+slack_channel: null
+working_groups:
+- code: SCM
+  deliverable_ids:
+  - SCM-4
+summary: |-
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed sollicitudin scelerisque enim, viverra tincidunt ipsum lobortis a. Praesent placerat mi sit amet vulputate sollicitudin. Suspendisse pulvinar varius arcu sed maximus. Duis malesuada arcu in dignissim suscipit. Praesent volutpat arcu vitae augue varius venenatis. Praesent sit amet euismod erat. Nunc pulvinar eget urna non gravida. Nam efficitur aliquam felis, in ullamcorper nibh dignissim et. Cras ornare elit sit amet pellentesque molestie. Ut quis tellus neque. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Nullam eget mollis ligula, quis cursus nunc. Donec urna libero, porta ut nisi vel, maximus pellentesque nibh. Praesent semper varius dolor, porta pharetra tortor ullamcorper eu.
+
+  Morbi scelerisque lacinia dignissim. Sed tincidunt arcu ac mi elementum, sed dapibus ligula auctor. Phasellus congue leo vel leo rutrum, in porttitor metus eleifend. Sed sit amet lectus a neque semper malesuada et eget mi. Duis sagittis massa quis nunc auctor, rhoncus euismod nulla condimentum. Donec vel neque vel tellus pretium porta. Fusce eget eros a purus ornare aliquet. Vivamus rutrum posuere ante, sed feugiat ex euismod in. Aenean vel mauris vitae ante auctor auctor. Aliquam eu scelerisque ante. Curabitur eget sagittis est. Phasellus condimentum sapien lorem, nec ultrices mauris feugiat nec. Duis euismod tortor odio, ac sollicitudin justo pretium vitae. Nulla commodo iaculis nibh, sit amet suscipit libero consectetur et. Donec egestas lectus odio, a posuere elit maximus sed.
+phd_thesis: false
+submission:
+  issue_number: 55
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T03:46:20Z'
+  issue_title_sha256: cb9830eae353e51c2056f8d8c473bccc9bde240956dcf46c30e5b5624deaa5d0
+  issue_body_sha256: ec4315deb3ce4efaa171a03a340622a3675316dc8334c16207a17ab80c1ccc05
