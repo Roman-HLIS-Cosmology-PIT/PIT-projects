@@ -1,0 +1,28 @@
+schema_version: 1
+project_id: P000070
+name: This is project 4
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CAS
+  deliverable_ids:
+  - CAS-2
+summary: |-
+  Just another test!
+
+  **Test markdown preview**
+  Oh it works
+phd_thesis: false
+submission:
+  issue_number: 70
+  submitted_by: aguinot
+  submitted_at: '2026-10-18T04:39:28Z'
+  issue_title_sha256: 40db31ef27990478cd70555b8eeb6616b3632431ca62e3f323c5593140d5e348
+  issue_body_sha256: 8841bcd38d0ba9bcf3ba2db631f50da3d5394fe6aa1101683cc2c4c0b80f6d51
