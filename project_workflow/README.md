@@ -12,7 +12,7 @@ updates proposal PRs, replays comment commands and regenerates GitHub files.
 | Install the optional Slack integration | [Slack installation](../slack/INSTALLATION.md) |
 | Start an LLM maintenance task | [AGENTS.md](../AGENTS.md) |
 
-Related directory guides: [GitHub integration](../.github/README.md),
+Related directory guides: [GitHub integration](../.github/OVERVIEW.md),
 [workflow operations](../.github/workflows/README.md), [Slack](../slack/README.md).
 Data formats are documented below and in architecture; `projects/` and
 `working_groups/` contain data only.
