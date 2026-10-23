@@ -1,0 +1,25 @@
+schema_version: 1
+project_id: P000072
+name: Test
+kind: EP
+status: active
+leads:
+- name: Axel G
+  github_username: aguinot
+contributors: []
+related_links: []
+github_url: https://github.com/aguinot/metacoadd
+slack_channel: null
+working_groups:
+- code: CAS
+  deliverable_ids:
+  - CAS-3
+  - CAS-4
+summary: zerpifhj
+phd_thesis: false
+submission:
+  issue_number: 72
+  submitted_by: aguinot
+  submitted_at: '2026-10-23T21:23:55Z'
+  issue_title_sha256: 532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25
+  issue_body_sha256: 0f330d9f8d4476852235c63f7e820bfd34b49635b0ec0d1e704022ddef09ec40
