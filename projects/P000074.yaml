@@ -1,0 +1,20 @@
+schema_version: 1
+project_id: P000074
+name: Test cpp
+kind: CPP
+status: open
+leads: []
+contributors: []
+related_links: []
+github_url: null
+slack_channel: null
+working_groups:
+- code: CAS
+  deliverable_ids: []
+summary: aeprjg
+submission:
+  issue_number: 74
+  submitted_by: aguinot
+  submitted_at: '2026-10-23T21:33:49Z'
+  issue_title_sha256: d6288cb67c381aa7d04f3b52c89a303933533558808c8e40ffde8351b26027a2
+  issue_body_sha256: e54780ffb3c8cb9e61283a6d8eea2c4263809d6b76c63e0f430c7a0546b84c54
