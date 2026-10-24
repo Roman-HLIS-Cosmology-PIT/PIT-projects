@@ -2,8 +2,10 @@ schema_version: 1
 project_id: P000063
 name: Test CPP
 kind: CPP
-status: open
-leads: []
+status: active
+leads:
+- name: Axel
+  github_username: aguinot
 contributors: []
 related_links: []
 github_url: null
@@ -20,3 +22,10 @@ submission:
   issue_title_sha256: 81a8340bfc7238af26d67456ee1dbb9bc7f3dc689f9f6aab2f7b7854cad23103
   issue_body_sha256: 67debec936ffdc252aed407cc4b8065e2a8fd2f7b4d52f99b5741e0916e1affe
 project_number: CPIP1
+claim:
+  issue_number: 76
+  submitted_by: aguinot
+  submitted_at: '2026-10-23T21:36:26Z'
+  issue_title_sha256: a5fe949bcf0f0b48cb2bf70978d094647b7e1e8c963b10c5c59ca5f58862589f
+  issue_body_sha256: 6f66f3703a98e4994c2ca8b26aa762d3a40626b2c2df3b247442f89e2b179537
+  base_sha256: 8b5fdcd6d1dcab2e283ba8ce4cf18fc50c05112aa3ffae3d375fe7ce39cf9a10
